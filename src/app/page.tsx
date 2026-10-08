@@ -213,6 +213,12 @@ export default function HomePage() {
     setProducts((prev) => [newProd, ...prev]);
   };
 
+  const handleUpdateProduct = (updatedProd: Product) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
+    );
+  };
+
   const handleDeleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
@@ -225,6 +231,15 @@ export default function HomePage() {
     );
   };
 
+  // Sync products changes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('umkm_products', JSON.stringify(products));
+    } catch (e) {
+      console.warn('LocalStorage save products error:', e);
+    }
+  }, [products]);
+
   const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status } : o))
@@ -234,7 +249,13 @@ export default function HomePage() {
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="app-container">
+    <div
+      className="app-container"
+      style={{
+        backgroundColor: storeInfo.backgroundColor || '#ffffff',
+        transition: 'background-color 0.3s ease',
+      }}
+    >
       {/* Main Header / Store Profile & Mode Switcher */}
       <Header
         store={storeInfo}
@@ -246,7 +267,13 @@ export default function HomePage() {
 
       {/* CUSTOMER VIEW */}
       {activeTab === 'customer' ? (
-        <main className="customer-main">
+        <main
+          className="customer-main"
+          style={{
+            backgroundColor: storeInfo.backgroundColor || '#ffffff',
+            transition: 'background-color 0.3s ease',
+          }}
+        >
           {/* Sticky Category & Search Bar */}
           <CategoryFilter
             categories={CATEGORIES}
@@ -315,6 +342,7 @@ export default function HomePage() {
           <CartFloatingBar
             items={cartItems}
             onOpenCart={() => setIsCartOpen(true)}
+            onClearCart={() => setCartItems([])}
           />
 
           {/* Interactive Modals */}
@@ -361,6 +389,7 @@ export default function HomePage() {
           onUpdateStore={handleUpdateStore}
           products={products}
           onAddProduct={handleAddProduct}
+          onUpdateProduct={handleUpdateProduct}
           onDeleteProduct={handleDeleteProduct}
           onToggleAvailability={handleToggleAvailability}
           orders={orders}

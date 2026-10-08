@@ -6,11 +6,13 @@ import { CartItem } from '@/types';
 interface CartFloatingBarProps {
   items: CartItem[];
   onOpenCart: () => void;
+  onClearCart?: () => void;
 }
 
 export const CartFloatingBar: React.FC<CartFloatingBarProps> = ({
   items,
   onOpenCart,
+  onClearCart,
 }) => {
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const totalPrice = items.reduce(
@@ -38,10 +40,29 @@ export const CartFloatingBar: React.FC<CartFloatingBarProps> = ({
           </div>
         </div>
 
-        <button className="btn-view-cart">
-          <span>Lihat Pesanan</span>
-          <span className="arrow-icon">→</span>
-        </button>
+        <div className="cart-actions-right">
+          <button className="btn-view-cart">
+            <span>Lihat Pesanan</span>
+            <span className="arrow-icon">→</span>
+          </button>
+
+          {onClearCart && (
+            <button
+              type="button"
+              className="btn-cancel-cart"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Batalkan pilihan menu ini?')) {
+                  onClearCart();
+                }
+              }}
+              title="Batalkan dan kosongkan pesanan"
+              aria-label="Batalkan pesanan"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <style jsx>{`
@@ -128,6 +149,35 @@ export const CartFloatingBar: React.FC<CartFloatingBarProps> = ({
           font-size: 1rem;
           font-weight: 800;
           color: #38bdf8;
+        }
+
+        .cart-actions-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .btn-cancel-cart {
+          background: rgba(255, 255, 255, 0.15);
+          color: #cbd5e1;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.85rem;
+          font-weight: 800;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .btn-cancel-cart:hover {
+          background: #ef4444;
+          color: white;
+          border-color: #dc2626;
+          transform: scale(1.08);
         }
 
         .btn-view-cart {

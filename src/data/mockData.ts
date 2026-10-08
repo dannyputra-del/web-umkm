@@ -12,6 +12,7 @@ export const INITIAL_STORE_INFO: StoreInfo = {
   openingHours: '09:00 - 21:30 WIB',
   logo: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80',
   banner: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1200&q=80',
+  backgroundColor: '#f8fafc',
 };
 
 export const INITIAL_PRODUCTS: Product[] = [

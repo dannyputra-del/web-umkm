@@ -57,4 +57,5 @@ export interface StoreInfo {
   openingHours: string;
   logo: string;
   banner: string;
+  backgroundColor?: string;
 }

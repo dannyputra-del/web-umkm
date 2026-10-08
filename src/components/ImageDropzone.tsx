@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { compressImage, CompressionResult } from '@/utils/imageCompressor';
 
 interface ImageDropzoneProps {
@@ -24,7 +24,19 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [compressionInfo, setCompressionInfo] = useState<CompressionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  
+  // Simpan foto awal / backup saat komponen dimuat agar bisa dibatalkan jika salah klik
+  const [initialBackup, setInitialBackup] = useState<string>('');
+  const [lastRemovedBackup, setLastRemovedBackup] = useState<string>('');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Tangkap nilai foto pertama kali ada sebagai titik pemulihan (undo/cancel)
+    if (value && !initialBackup) {
+      setInitialBackup(value);
+    }
+  }, [value, initialBackup]);
 
   const defaultDimensions = {
     banner: { width: 1200, height: 500 },
@@ -86,12 +98,27 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
 
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (value) {
+      setLastRemovedBackup(value);
+    }
     onChange('');
     setCompressionInfo(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  const handleRestore = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const restoreTarget = lastRemovedBackup || initialBackup;
+    if (restoreTarget) {
+      onChange(restoreTarget);
+      setCompressionInfo(null);
+      setErrorMsg('');
+    }
+  };
+
+  const canRestore = (lastRemovedBackup || initialBackup) && (!value || value !== initialBackup);
 
   return (
     <div className={`dropzone-container ${aspectRatio}`}>
@@ -116,52 +143,93 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
               >
                 🔄 Ganti Foto
               </button>
+              
+              {initialBackup && value !== initialBackup && (
+                <button
+                  type="button"
+                  className="btn-restore-img"
+                  onClick={handleRestore}
+                  title="Kembalikan ke foto semula sebelum diganti"
+                >
+                  ↩️ Batal Ganti
+                </button>
+              )}
+
               <button
                 type="button"
                 className="btn-remove-img"
                 onClick={handleRemove}
+                title="Hapus foto ini"
               >
                 🗑️ Hapus
               </button>
             </div>
           </div>
 
-          {compressionInfo && (
-            <div className="compression-badge">
-              <span className="badge-spark">⚡</span>
-              <span>
-                Kompresi Otomatis: <strong>{compressionInfo.originalSizeFormatted}</strong> ➔{' '}
-                <strong className="text-highlight">{compressionInfo.compressedSizeFormatted}</strong> (Hemat{' '}
-                {compressionInfo.savingsPercent}%, Resolusi {compressionInfo.width}×{compressionInfo.height})
-              </span>
-            </div>
-          )}
+          <div className="preview-meta-bar">
+            {compressionInfo && (
+              <div className="compression-badge">
+                <span className="badge-spark">⚡</span>
+                <span>
+                  Kompresi: <strong>{compressionInfo.originalSizeFormatted}</strong> ➔{' '}
+                  <strong className="text-highlight">{compressionInfo.compressedSizeFormatted}</strong> (Hemat{' '}
+                  {compressionInfo.savingsPercent}%, Resolusi {compressionInfo.width}×{compressionInfo.height})
+                </span>
+              </div>
+            )}
+
+            {initialBackup && value !== initialBackup && (
+              <button
+                type="button"
+                className="btn-text-undo"
+                onClick={handleRestore}
+              >
+                ✕ Batal Ganti (Kembalikan Foto Awal)
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         /* Empty Dropzone Area */
-        <div
-          className={`dropzone-box ${isDragging ? 'dragging' : ''} ${isProcessing ? 'processing' : ''}`}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          {isProcessing ? (
-            <div className="loading-state">
-              <span className="spinner-icon">⏳</span>
-              <span className="loading-text">Sedang mengompres & mengoptimalkan gambar...</span>
-            </div>
-          ) : (
-            <div className="empty-content">
-              <div className="upload-icon-circle">
-                <span>📁</span>
+        <div className="empty-dropzone-wrap">
+          <div
+            className={`dropzone-box ${isDragging ? 'dragging' : ''} ${isProcessing ? 'processing' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isProcessing ? (
+              <div className="loading-state">
+                <span className="spinner-icon">⏳</span>
+                <span className="loading-text">Sedang mengompres & mengoptimalkan gambar...</span>
               </div>
-              <p className="main-label">{label}</p>
-              <p className="sub-label">{subLabel}</p>
-              <span className="btn-select-file">Pilih Foto dari Galeri / Komputer</span>
-              <span className="format-hint">
-                Maksimal resolusi otomatis disesuaikan • Konversi ke WebP ringan
-              </span>
+            ) : (
+              <div className="empty-content">
+                <div className="upload-icon-circle">
+                  <span>📁</span>
+                </div>
+                <p className="main-label">{label}</p>
+                <p className="sub-label">{subLabel}</p>
+                <span className="btn-select-file">Pilih Foto dari Galeri / Komputer</span>
+                <span className="format-hint">
+                  Maksimal resolusi otomatis disesuaikan • Konversi ke WebP ringan
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Tombol Undo / Batal jika sebelumnya ada foto yang tidak sengaja terhapus */}
+          {canRestore && (
+            <div className="restore-bar">
+              <span className="restore-hint">Foto sebelumnya terhapus?</span>
+              <button
+                type="button"
+                className="btn-undo-remove"
+                onClick={handleRestore}
+              >
+                ✕ Batal Hapus (Kembalikan Foto Semula)
+              </button>
             </div>
           )}
         </div>
@@ -317,6 +385,8 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
           gap: 8px;
           opacity: 0;
           transition: opacity 0.2s ease;
+          padding: 8px;
+          flex-wrap: wrap;
         }
 
         .preview-wrapper:hover .preview-overlay {
@@ -333,6 +403,16 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
           cursor: pointer;
         }
 
+        .btn-restore-img {
+          background: #3b82f6;
+          color: white;
+          padding: 6px 12px;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
         .btn-remove-img {
           background: #ef4444;
           color: white;
@@ -341,6 +421,14 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
           font-size: 0.75rem;
           font-weight: 700;
           cursor: pointer;
+        }
+
+        .preview-meta-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 8px;
         }
 
         .compression-badge {
@@ -361,6 +449,43 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
 
         .text-highlight {
           color: #059669;
+        }
+
+        .btn-text-undo {
+          background: none;
+          border: none;
+          color: #3b82f6;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
+          text-decoration: underline;
+        }
+
+        .restore-bar {
+          margin-top: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #eff6ff;
+          border: 1px dashed #93c5fd;
+          padding: 8px 12px;
+          border-radius: 8px;
+          font-size: 0.78rem;
+        }
+
+        .restore-hint {
+          color: #1e40af;
+        }
+
+        .btn-undo-remove {
+          background: #2563eb;
+          color: white;
+          border: none;
+          padding: 4px 12px;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
         }
 
         .error-hint {

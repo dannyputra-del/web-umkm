@@ -10,6 +10,7 @@ interface AdminDashboardProps {
   onUpdateStore: (store: StoreInfo) => void;
   products: Product[];
   onAddProduct: (newProduct: Product) => void;
+  onUpdateProduct?: (product: Product) => void;
   onDeleteProduct: (id: string) => void;
   onToggleAvailability: (id: string) => void;
   orders: Order[];
@@ -22,6 +23,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateStore,
   products,
   onAddProduct,
+  onUpdateProduct,
   onDeleteProduct,
   onToggleAvailability,
   orders,
@@ -30,6 +32,74 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<'products' | 'orders' | 'settings'>('products');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  // Edit Product State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    category: 'Lauk Utama',
+    price: '',
+    originalPrice: '',
+    description: '',
+    image: '',
+    badge: '',
+    isAvailable: true,
+  });
+  const [editFormError, setEditFormError] = useState('');
+
+  const handleOpenEditProduct = (prod: Product) => {
+    setEditingProductId(prod.id);
+    setEditFormData({
+      name: prod.name,
+      category: prod.category,
+      price: prod.price.toString(),
+      originalPrice: prod.originalPrice ? prod.originalPrice.toString() : '',
+      description: prod.description || '',
+      image: prod.image || '',
+      badge: prod.badge || '',
+      isAvailable: prod.isAvailable,
+    });
+    setEditFormError('');
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFormData.name.trim() || !editFormData.price.trim()) {
+      setEditFormError('Nama menu dan harga wajib diisi!');
+      return;
+    }
+
+    const priceNum = parseInt(editFormData.price, 10);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setEditFormError('Harga harus berupa angka valid!');
+      return;
+    }
+
+    if (!editingProductId) return;
+
+    const original = products.find((p) => p.id === editingProductId);
+    const updatedProd: Product = {
+      id: editingProductId,
+      name: editFormData.name.trim(),
+      category: editFormData.category,
+      price: priceNum,
+      originalPrice: editFormData.originalPrice ? parseInt(editFormData.originalPrice, 10) : undefined,
+      description: editFormData.description.trim() || 'Menu lezat pilihan dari ' + store.name,
+      image: editFormData.image.trim() || (original?.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80'),
+      badge: editFormData.badge.trim() || undefined,
+      rating: original?.rating ?? 5.0,
+      salesCount: original?.salesCount ?? 1,
+      isAvailable: editFormData.isAvailable,
+    };
+
+    if (onUpdateProduct) {
+      onUpdateProduct(updatedProd);
+    }
+    setIsEditModalOpen(false);
+    setEditingProductId(null);
+  };
 
   // Store Personalization Draft State
   const [storeDraft, setStoreDraft] = useState<StoreInfo>(store);
@@ -233,6 +303,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </td>
                     <td>
                       <div className="table-actions">
+                        <button
+                          className="btn-action-edit"
+                          onClick={() => handleOpenEditProduct(prod)}
+                          title="Edit Menu & Foto"
+                        >
+                          ✏️ Edit
+                        </button>
                         <button
                           className="btn-action-del"
                           onClick={() => {
@@ -564,6 +641,80 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Card 4: Pilihan Tema & Warna Latar Belakang */}
+              <div className="settings-section-card">
+                <div className="section-card-header">
+                  <span className="card-badge-icon">🎨</span>
+                  <div>
+                    <h4>Tema & Warna Latar Belakang Website</h4>
+                    <p>Pilih suasana warna background toko agar etalase tidak monoton putih.</p>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Palet Pilihan Suasana Populer</label>
+                  <div className="theme-palette-grid">
+                    {[
+                      { name: 'Putih Bersih', color: '#ffffff', border: '#e2e8f0' },
+                      { name: 'Slate Elegan', color: '#f8fafc', border: '#cbd5e1' },
+                      { name: 'Krem Hangat', color: '#fbf8f1', border: '#f3e8d2' },
+                      { name: 'Cafe Latte', color: '#f5efe6', border: '#e6dac8' },
+                      { name: 'Hijau Sage', color: '#f0fdf4', border: '#bbf7d0' },
+                      { name: 'Soft Rose', color: '#fff1f2', border: '#fecdd3' },
+                      { name: 'Amber Ceria', color: '#fef3c7', border: '#fde68a' },
+                      { name: 'Mewah Charcoal', color: '#0f172a', border: '#334155' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.color}
+                        type="button"
+                        className={`palette-preset-btn ${(storeDraft.backgroundColor || '#f8fafc') === preset.color ? 'active' : ''}`}
+                        onClick={() => setStoreDraft({ ...storeDraft, backgroundColor: preset.color })}
+                      >
+                        <span
+                          className="palette-swatch"
+                          style={{
+                            backgroundColor: preset.color,
+                            border: `2px solid ${preset.border}`,
+                          }}
+                        />
+                        <span className="palette-label">{preset.name}</span>
+                        {(storeDraft.backgroundColor || '#f8fafc') === preset.color && <span className="palette-check">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '16px' }}>
+                  <label className="form-label">Atau Pilih Warna Kustom Bebas</label>
+                  <div className="custom-color-picker-row">
+                    <input
+                      type="color"
+                      value={storeDraft.backgroundColor || '#f8fafc'}
+                      onChange={(e) => setStoreDraft({ ...storeDraft, backgroundColor: e.target.value })}
+                      className="color-picker-input"
+                    />
+                    <input
+                      type="text"
+                      value={storeDraft.backgroundColor || '#f8fafc'}
+                      onChange={(e) => setStoreDraft({ ...storeDraft, backgroundColor: e.target.value })}
+                      placeholder="#f8fafc"
+                      className="form-input color-hex-input"
+                    />
+                    <button
+                      type="button"
+                      className="btn-color-reset"
+                      onClick={() => setStoreDraft({ ...storeDraft, backgroundColor: '#f8fafc' })}
+                      title="Kembalikan ke warna default"
+                    >
+                      Reset Default
+                    </button>
+                  </div>
+                  <span className="input-hint">
+                    Warna latar belakang ini akan langsung terlihat pada pratinjau di samping dan di halaman pembeli setelah disimpan.
+                  </span>
+                </div>
+              </div>
+
               {/* Action Buttons */}
               <div className="save-action-strip">
                 <button
@@ -588,7 +739,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Mock Header Preview */}
-                <div className="mock-header-card">
+                <div
+                  className="mock-header-card"
+                  style={{
+                    backgroundColor: storeDraft.backgroundColor || '#ffffff',
+                    transition: 'background-color 0.3s ease',
+                  }}
+                >
                   <div className="mock-banner-wrap">
                     <img
                       src={storeDraft.banner}
@@ -598,7 +755,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="mock-banner-overlay" />
                   </div>
 
-                  <div className="mock-body-wrap">
+                  <div
+                    className="mock-body-wrap"
+                    style={{
+                      backgroundColor: storeDraft.backgroundColor || '#ffffff',
+                      color: storeDraft.backgroundColor === '#0f172a' ? '#f8fafc' : undefined,
+                      transition: 'background-color 0.3s ease',
+                    }}
+                  >
                     <div className="mock-avatar-wrap">
                       <img
                         src={storeDraft.logo}
@@ -761,6 +925,151 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
                 <button type="submit" className="btn-save-new">
                   Simpan & Tambah ke Etalase
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT PRODUCT CARD */}
+      {isEditModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">
+                <span>✏️</span>
+                <span>Edit Kartu Menu & Foto Produk</span>
+              </h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setIsEditModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditProduct} className="modal-body">
+              {editFormError && <div className="form-alert-error">{editFormError}</div>}
+
+              <div className="form-group">
+                <label className="form-label">Nama Menu / Produk *</label>
+                <input
+                  type="text"
+                  placeholder="Cth: Ayam Gulai Pedas Gurih"
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  className="form-input"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Kategori Produk</label>
+                <select
+                  value={editFormData.category}
+                  onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                  className="form-select"
+                >
+                  {CATEGORIES.filter((c) => c !== 'Semua Menu').map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-row-2">
+                <div className="form-group">
+                  <label className="form-label">Harga Jual (Rp) *</label>
+                  <input
+                    type="number"
+                    placeholder="Cth: 25000"
+                    value={editFormData.price}
+                    onChange={(e) => setEditFormData({ ...editFormData, price: e.target.value })}
+                    className="form-input"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Harga Coret / Asli (Opsional)</label>
+                  <input
+                    type="number"
+                    placeholder="Cth: 30000"
+                    value={editFormData.originalPrice}
+                    onChange={(e) => setEditFormData({ ...editFormData, originalPrice: e.target.value })}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Deskripsi Menu</label>
+                <textarea
+                  placeholder="Jelaskan kelezatan atau porsi menu ini..."
+                  value={editFormData.description}
+                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  className="form-textarea"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Foto Menu Makanan / Produk</label>
+                <ImageDropzone
+                  value={editFormData.image}
+                  onChange={(dataUrl) => setEditFormData({ ...editFormData, image: dataUrl })}
+                  aspectRatio="product"
+                  label="Ganti Foto Produk"
+                  subLabel="Tarik & lepas foto baru ke sini, atau klik untuk memilih file dari HP/komputer"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Badge Label (Opsional)</label>
+                <input
+                  type="text"
+                  placeholder="Cth: Spesial Minggu Ini, Best Seller"
+                  value={editFormData.badge}
+                  onChange={(e) => setEditFormData({ ...editFormData, badge: e.target.value })}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Status Ketersediaan</label>
+                <div className="status-toggle-card" style={{ marginTop: '4px' }}>
+                  <div className="status-toggle-info">
+                    <span className="toggle-title">
+                      {editFormData.isAvailable ? '🟢 Menu Tersedia' : '🔴 Menu Sedang Habis'}
+                    </span>
+                    <span className="toggle-desc">
+                      {editFormData.isAvailable
+                        ? 'Pelanggan dapat memesan menu ini di etalase web.'
+                        : 'Pelanggan tidak dapat memesan menu ini saat ini.'}
+                    </span>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={editFormData.isAvailable}
+                      onChange={(e) => setEditFormData({ ...editFormData, isAvailable: e.target.checked })}
+                    />
+                    <span className="slider round"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="modal-footer-strip">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={() => setIsEditModalOpen(false)}
+                >
+                  Batal
+                </button>
+                <button type="submit" className="btn-save-new">
+                  Simpan Perubahan Menu
                 </button>
               </div>
             </form>
@@ -1022,6 +1331,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           border: 1px solid #fecaca;
         }
 
+        .table-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .btn-action-edit {
+          background: #eff6ff;
+          color: #2563eb;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          border: 1px solid #bfdbfe;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .btn-action-edit:hover {
+          background: #dbeafe;
+          border-color: #93c5fd;
+          transform: translateY(-1px);
+        }
+
         .btn-action-del {
           background: #fef2f2;
           color: #ef4444;
@@ -1029,6 +1362,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           border-radius: 6px;
           font-size: 0.75rem;
           font-weight: 600;
+          border: 1px solid #fecaca;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .btn-action-del:hover {
+          background: #fee2e2;
+          border-color: #fca5a5;
+          transform: translateY(-1px);
         }
 
         .orders-cards-grid {
@@ -1726,6 +2068,99 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           border-radius: var(--radius-full);
           font-size: 0.85rem;
           font-weight: 700;
+        }
+
+        /* Palette Presets & Color Picker */
+        .theme-palette-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+          gap: 10px;
+          margin-top: 8px;
+        }
+
+        .palette-preset-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: #ffffff;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          cursor: pointer;
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: #334155;
+          transition: all 0.2s ease;
+          position: relative;
+        }
+
+        .palette-preset-btn:hover {
+          border-color: #94a3b8;
+          transform: translateY(-1px);
+        }
+
+        .palette-preset-btn.active {
+          border-color: var(--primary);
+          background: #fff7ed;
+          color: var(--primary);
+          box-shadow: 0 0 0 1px var(--primary);
+        }
+
+        .palette-swatch {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+
+        .palette-label {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .palette-check {
+          margin-left: auto;
+          font-size: 0.75rem;
+          font-weight: 800;
+        }
+
+        .custom-color-picker-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .color-picker-input {
+          width: 44px;
+          height: 40px;
+          border-radius: 8px;
+          border: 1.5px solid #cbd5e1;
+          cursor: pointer;
+          background: none;
+          padding: 2px;
+        }
+
+        .color-hex-input {
+          max-width: 130px;
+          font-family: monospace;
+          font-size: 0.85rem;
+        }
+
+        .btn-color-reset {
+          background: #f1f5f9;
+          color: #475569;
+          border: 1px solid #cbd5e1;
+          padding: 8px 14px;
+          border-radius: 8px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .btn-color-reset:hover {
+          background: #e2e8f0;
         }
       `}</style>
     </div>
