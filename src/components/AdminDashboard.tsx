@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Product, StoreInfo, Order } from '@/types';
 import { CATEGORIES } from '@/data/mockData';
+import { ImageDropzone } from './ImageDropzone';
 
 interface AdminDashboardProps {
   store: StoreInfo;
@@ -33,24 +34,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Store Personalization Draft State
   const [storeDraft, setStoreDraft] = useState<StoreInfo>(store);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
-
-  // Sample Presets for Store Customization
-  const sampleLogos = [
-    { label: '🍲 Chef / Kuliner', url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80' },
-    { label: '☕ Kopi & Kafe', url: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=300&q=80' },
-    { label: '🥐 Roti & Bakery', url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=300&q=80' },
-    { label: '🍔 Burger & Grill', url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=300&q=80' },
-    { label: '👗 Butik & Fashion', url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=300&q=80' },
-    { label: '📦 Toko Kelontong', url: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=300&q=80' },
-  ];
-
-  const sampleBanners = [
-    { label: '🍱 Kuliner Nusantara', url: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80' },
-    { label: '☕ Kafe Estetik', url: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=1200&q=80' },
-    { label: '🍰 Aneka Kue & Patisserie', url: 'https://images.unsplash.com/photo-1517433670267-08bbd4be890f?auto=format&fit=crop&w=1200&q=80' },
-    { label: '🍜 Dapur Resto Hangat', url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80' },
-    { label: '🛍️ Toko Modern & Retail', url: 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&w=1200&q=80' },
-  ];
 
   const storeCategories = [
     'Kuliner & Makanan Basah',
@@ -84,15 +67,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [formError, setFormError] = useState('');
 
-  // Preset sample images for quick add
-  const sampleImages = [
-    { label: 'Rendang/Daging', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Ayam Goreng', url: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Kari / Gulai', url: 'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Nasi Kotak', url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Minuman Segar', url: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=600&q=80' },
-  ];
-
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.price.trim()) {
@@ -113,7 +87,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       price: priceNum,
       originalPrice: formData.originalPrice ? parseInt(formData.originalPrice, 10) : undefined,
       description: formData.description.trim() || 'Menu lezat pilihan dari ' + store.name,
-      image: formData.image.trim() || sampleImages[0].url,
+      image: formData.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
       badge: formData.badge.trim() || undefined,
       rating: 5.0,
       salesCount: 1,
@@ -414,76 +388,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 {/* Foto Profil / Logo */}
                 <div className="form-group">
-                  <label className="form-label">Foto Profil / Logo Toko (URL)</label>
-                  <div className="avatar-input-row">
-                    <img
-                      src={storeDraft.logo}
-                      alt="Preview Logo"
-                      className="avatar-mini-preview"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = sampleLogos[0].url;
-                      }}
-                    />
-                    <div className="input-with-presets">
-                      <input
-                        type="url"
-                        placeholder="https://... URL gambar logo"
-                        value={storeDraft.logo}
-                        onChange={(e) => setStoreDraft({ ...storeDraft, logo: e.target.value })}
-                        className="form-input"
-                      />
-                      <div className="quick-label">Atau pilih logo template cepat:</div>
-                      <div className="preset-pills-row">
-                        {sampleLogos.map((item, idx) => (
-                          <button
-                            type="button"
-                            key={idx}
-                            className={`sample-pill-btn ${storeDraft.logo === item.url ? 'active' : ''}`}
-                            onClick={() => setStoreDraft({ ...storeDraft, logo: item.url })}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                  <label className="form-label">Foto Profil / Logo Toko</label>
+                  <ImageDropzone
+                    value={storeDraft.logo}
+                    onChange={(dataUrl) => setStoreDraft({ ...storeDraft, logo: dataUrl })}
+                    aspectRatio="avatar"
+                    label="Unggah Foto Profil / Logo Toko"
+                    subLabel="Tarik & lepas foto logo ke sini, atau klik untuk memilih dari HP / komputer"
+                  />
                 </div>
 
                 {/* Banner Sampul */}
                 <div className="form-group" style={{ marginTop: '18px' }}>
-                  <label className="form-label">Banner Sampul Toko (URL)</label>
-                  <div className="banner-input-col">
-                    <div className="banner-mini-preview-wrap">
-                      <img
-                        src={storeDraft.banner}
-                        alt="Preview Banner"
-                        className="banner-mini-preview"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = sampleBanners[0].url;
-                        }}
-                      />
-                    </div>
-                    <input
-                      type="url"
-                      placeholder="https://... URL gambar banner lebar"
-                      value={storeDraft.banner}
-                      onChange={(e) => setStoreDraft({ ...storeDraft, banner: e.target.value })}
-                      className="form-input"
-                    />
-                    <div className="quick-label">Atau pilih banner estetik cepat:</div>
-                    <div className="preset-pills-row">
-                      {sampleBanners.map((item, idx) => (
-                        <button
-                          type="button"
-                          key={idx}
-                          className={`sample-pill-btn ${storeDraft.banner === item.url ? 'active' : ''}`}
-                          onClick={() => setStoreDraft({ ...storeDraft, banner: item.url })}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <label className="form-label">Banner Sampul Toko (Hero Header)</label>
+                  <ImageDropzone
+                    value={storeDraft.banner}
+                    onChange={(dataUrl) => setStoreDraft({ ...storeDraft, banner: dataUrl })}
+                    aspectRatio="banner"
+                    label="Unggah Foto Banner Sampul Toko"
+                    subLabel="Tarik & lepas foto banner ke sini (rasio lebar), otomatis dikompres ke WebP ringan"
+                  />
                 </div>
               </div>
 
@@ -806,30 +730,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="form-group">
-                <label className="form-label">URL Foto Produk</label>
-                <input
-                  type="url"
-                  placeholder="https://... atau pilih foto cepat di bawah"
+                <label className="form-label">Foto Menu Makanan / Produk</label>
+                <ImageDropzone
                   value={formData.image}
-                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                  className="form-input"
+                  onChange={(dataUrl) => setFormData({ ...formData, image: dataUrl })}
+                  aspectRatio="product"
+                  label="Unggah Foto Produk"
+                  subLabel="Tarik & lepas foto produk ke sini, atau klik untuk memilih file"
                 />
-
-                <div className="quick-image-select">
-                  <span className="quick-label">Pilih Foto Sampel Cepat:</span>
-                  <div className="sample-pills">
-                    {sampleImages.map((s, idx) => (
-                      <button
-                        type="button"
-                        key={idx}
-                        className="sample-btn"
-                        onClick={() => setFormData({ ...formData, image: s.url })}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <div className="form-group">
