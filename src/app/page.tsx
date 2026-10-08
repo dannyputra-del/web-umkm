@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo } from '@/types';
 import { INITIAL_STORE_INFO, INITIAL_PRODUCTS, CATEGORIES } from '@/data/mockData';
 import { Header } from '@/components/Header';
@@ -45,6 +45,31 @@ export default function HomePage() {
   // Filtering & Search
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Hydrate from localStorage on client
+  useEffect(() => {
+    try {
+      const savedStore = localStorage.getItem('umkm_store_info');
+      if (savedStore) {
+        setStoreInfo(JSON.parse(savedStore));
+      }
+      const savedProducts = localStorage.getItem('umkm_products');
+      if (savedProducts) {
+        setProducts(JSON.parse(savedProducts));
+      }
+    } catch (e) {
+      console.warn('LocalStorage error:', e);
+    }
+  }, []);
+
+  const handleUpdateStore = (newStore: StoreInfo) => {
+    setStoreInfo(newStore);
+    try {
+      localStorage.setItem('umkm_store_info', JSON.stringify(newStore));
+    } catch (e) {
+      console.warn('LocalStorage save error:', e);
+    }
+  };
 
   // Cart State
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -333,7 +358,7 @@ export default function HomePage() {
         /* BACKEND DASHBOARD (OWNER / ADMIN) */
         <AdminDashboard
           store={storeInfo}
-          onUpdateStore={setStoreInfo}
+          onUpdateStore={handleUpdateStore}
           products={products}
           onAddProduct={handleAddProduct}
           onDeleteProduct={handleDeleteProduct}
