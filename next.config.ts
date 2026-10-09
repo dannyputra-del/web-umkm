@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
-const isGithubPages = process.env.GITHUB_ACTIONS === "true" || process.env.DEPLOY_TARGET === "gh-pages";
+// basePath '/web-umkm' hanya digunakan saat deploy khusus ke GitHub Pages
+const isGithubPages = process.env.DEPLOY_TARGET === "gh-pages";
 
 const nextConfig: NextConfig = {
   output: "export",
