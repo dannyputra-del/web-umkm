@@ -59,4 +59,19 @@ export interface StoreInfo {
   banner: string;
   backgroundColor?: string;
   googleMapsUrl?: string;
+  slug: string;
+  ownerName?: string;
+}
+
+export interface MerchantAccount {
+  id: string;
+  ownerName: string;
+  phone: string;
+  email?: string;
+  password?: string;
+  storeSlug: string;
+  storeName: string;
+  category: string;
+  createdAt: string;
+  status: 'active' | 'pending' | 'suspended';
 }

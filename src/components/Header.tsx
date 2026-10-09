@@ -7,8 +7,8 @@ interface HeaderProps {
   store: StoreInfo;
   cartCount: number;
   onOpenCart: () => void;
-  activeTab: 'customer' | 'admin';
-  setActiveTab: (tab: 'customer' | 'admin') => void;
+  activeTab: 'customer' | 'admin' | 'auth' | 'superadmin';
+  setActiveTab: (tab: 'customer' | 'admin' | 'auth' | 'superadmin') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,13 +32,25 @@ export const Header: React.FC<HeaderProps> = ({
             className={`tab-pill-btn ${activeTab === 'customer' ? 'active' : ''}`}
             onClick={() => setActiveTab('customer')}
           >
-            🛍️ Tampilan Pembeli
+            🛍️ Pembeli
           </button>
           <button
             className={`tab-pill-btn ${activeTab === 'admin' ? 'active' : ''}`}
             onClick={() => setActiveTab('admin')}
           >
-            ⚙️ Dashboard Penjual (Admin)
+            ⚙️ Dashboard Toko
+          </button>
+          <button
+            className={`tab-pill-btn ${activeTab === 'auth' ? 'active' : ''}`}
+            onClick={() => setActiveTab('auth')}
+          >
+            🔐 Login / Daftar UMKM
+          </button>
+          <button
+            className={`tab-pill-btn ${activeTab === 'superadmin' ? 'active' : ''}`}
+            onClick={() => setActiveTab('superadmin')}
+          >
+            👑 Super Admin
           </button>
         </div>
       </div>

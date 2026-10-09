@@ -1,4 +1,4 @@
-import { Product, StoreInfo } from '@/types';
+import { Product, StoreInfo, MerchantAccount } from '@/types';
 
 export const INITIAL_STORE_INFO: StoreInfo = {
   name: 'Restoran Padang Jaya Makmur',
@@ -14,6 +14,8 @@ export const INITIAL_STORE_INFO: StoreInfo = {
   banner: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1200&q=80',
   backgroundColor: '#f8fafc',
   googleMapsUrl: 'https://maps.google.com/?q=Restoran+Padang+Jaya+Makmur+Rawamangun+Jakarta',
+  slug: 'padang-jaya',
+  ownerName: 'Haji Rahmat Fauzi',
 };
 
 export const INITIAL_PRODUCTS: Product[] = [
@@ -169,3 +171,125 @@ export const CATEGORIES = [
   'Pelengkap',
   'Minuman Segar',
 ];
+
+export const INITIAL_MERCHANTS: MerchantAccount[] = [
+  {
+    id: 'merch-1',
+    ownerName: 'Haji Rahmat Fauzi',
+    phone: '081298765432',
+    email: 'rahmat@padangjaya.id',
+    storeSlug: 'padang-jaya',
+    storeName: 'Restoran Padang Jaya Makmur',
+    category: 'Kuliner Nusantara / Rumah Makan Padang',
+    createdAt: '2026-09-15',
+    status: 'active',
+  },
+  {
+    id: 'merch-2',
+    ownerName: 'Aditya Pratama',
+    phone: '081344556677',
+    email: 'aditya@kopisenja.com',
+    storeSlug: 'kopi-senja',
+    storeName: 'Kopi Kenangan Senja',
+    category: 'Kedai Kopi & Minuman Kekinian',
+    createdAt: '2026-10-01',
+    status: 'active',
+  },
+  {
+    id: 'merch-3',
+    ownerName: 'Siti Rahayu',
+    phone: '081588990011',
+    email: 'rahayu@batiknusantara.id',
+    storeSlug: 'batik-nusantara',
+    storeName: 'Batik & Tenun Nusantara',
+    category: 'Fashion, Busana & Aksesoris',
+    createdAt: '2026-10-05',
+    status: 'active',
+  },
+];
+
+export const STORE_PRESETS: Record<string, { store: StoreInfo; products: Product[] }> = {
+  'padang-jaya': {
+    store: INITIAL_STORE_INFO,
+    products: INITIAL_PRODUCTS,
+  },
+  'kopi-senja': {
+    store: {
+      name: 'Kopi Kenangan Senja',
+      tagline: 'Secangkir Cerita & Kopi Susu Aren Asli Temanggung',
+      description: 'Menyajikan aneka espresso blend, manual brew, kopi susu kekinian, dan pastry lezat untuk teman santai Anda.',
+      category: 'Kedai Kopi & Minuman Kekinian',
+      address: 'Jl. Senopati Raya No. 18, Kebayoran Baru, Jakarta Selatan',
+      phone: '0813-4455-6677',
+      whatsapp: '6281344556677',
+      isOpen: true,
+      openingHours: '08:00 - 23:00 WIB',
+      logo: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=300&q=80',
+      banner: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1200&q=80',
+      backgroundColor: '#f5efe6',
+      googleMapsUrl: 'https://maps.google.com/?q=Kopi+Kenangan+Senopati',
+      slug: 'kopi-senja',
+      ownerName: 'Aditya Pratama',
+    },
+    products: [
+      {
+        id: 'kopi-1',
+        name: 'Kopi Susu Aren Senja Signature',
+        category: 'Minuman Segar',
+        price: 22000,
+        originalPrice: 25000,
+        description: 'Espresso arabika blend dipadu gula aren murni dan susu segar creamer lembut.',
+        image: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?auto=format&fit=crop&w=600&q=80',
+        badge: 'Best Seller ☕',
+        rating: 4.9,
+        salesCount: 890,
+        isAvailable: true,
+      },
+      {
+        id: 'kopi-2',
+        name: 'Butter Croissant Crispy',
+        category: 'Pelengkap',
+        price: 18000,
+        description: 'Pastry renyah berlapis dengan mentega Prancis harum semerbak.',
+        image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=600&q=80',
+        rating: 4.8,
+        salesCount: 420,
+        isAvailable: true,
+      },
+    ],
+  },
+  'batik-nusantara': {
+    store: {
+      name: 'Batik & Tenun Nusantara',
+      tagline: 'Karya Asli Pengrajin Lokal dengan Motif Warisan Luhur',
+      description: 'Koleksi busana batik tulis, cap katun primisima, dan kain tenun ikat berkualitas tinggi dari berbagai pelosok Nusantara.',
+      category: 'Fashion, Busana & Aksesoris',
+      address: 'Pasar Baru Mall Lt. 2 Blok B No. 14, Jakarta Pusat',
+      phone: '0815-8899-0011',
+      whatsapp: '6281588990011',
+      isOpen: true,
+      openingHours: '10:00 - 20:00 WIB',
+      logo: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=300&q=80',
+      banner: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=1200&q=80',
+      backgroundColor: '#fbf8f1',
+      googleMapsUrl: 'https://maps.google.com/?q=Pasar+Baru+Jakarta',
+      slug: 'batik-nusantara',
+      ownerName: 'Siti Rahayu',
+    },
+    products: [
+      {
+        id: 'batik-1',
+        name: 'Kemeja Batik Katun Parang Barong',
+        category: 'Lauk Utama',
+        price: 185000,
+        originalPrice: 220000,
+        description: 'Batik katun primisima halus lapis furing trikot adem dan elegan untuk acara formal.',
+        image: 'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&w=600&q=80',
+        badge: 'Produk Unggulan ✨',
+        rating: 5.0,
+        salesCount: 310,
+        isAvailable: true,
+      },
+    ],
+  },
+};

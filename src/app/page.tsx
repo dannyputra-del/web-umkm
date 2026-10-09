@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo } from '@/types';
-import { INITIAL_STORE_INFO, INITIAL_PRODUCTS, CATEGORIES } from '@/data/mockData';
+import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo, MerchantAccount } from '@/types';
+import { INITIAL_STORE_INFO, INITIAL_PRODUCTS, CATEGORIES, INITIAL_MERCHANTS, STORE_PRESETS } from '@/data/mockData';
 import { Header } from '@/components/Header';
 import { CategoryFilter } from '@/components/CategoryFilter';
 import { ProductCard } from '@/components/ProductCard';
@@ -12,10 +12,16 @@ import { CheckoutModal } from '@/components/CheckoutModal';
 import { PaymentModal } from '@/components/PaymentModal';
 import { OrderSuccessModal } from '@/components/OrderSuccessModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
+import { AuthView } from '@/components/AuthView';
+import { SuperAdminDashboard } from '@/components/SuperAdminDashboard';
 
 export default function HomePage() {
   // Global States
-  const [activeTab, setActiveTab] = useState<'customer' | 'admin'>('customer');
+  const [activeTab, setActiveTab] = useState<'customer' | 'admin' | 'auth' | 'superadmin'>('customer');
+  const [merchants, setMerchants] = useState<MerchantAccount[]>(INITIAL_MERCHANTS);
+  const [allStores, setAllStores] = useState<Record<string, { store: StoreInfo; products: Product[] }>>(STORE_PRESETS);
+  const [activeStoreSlug, setActiveStoreSlug] = useState<string>('padang-jaya');
+
   const [storeInfo, setStoreInfo] = useState<StoreInfo>(INITIAL_STORE_INFO);
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [orders, setOrders] = useState<Order[]>([
@@ -46,16 +52,32 @@ export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Hydrate from localStorage on client
+  // Hydrate from localStorage on client and read ?store= query param
   useEffect(() => {
     try {
-      const savedStore = localStorage.getItem('umkm_store_info');
-      if (savedStore) {
-        setStoreInfo(JSON.parse(savedStore));
+      // Check query param ?store=
+      const params = new URLSearchParams(window.location.search);
+      const storeSlugParam = params.get('store');
+
+      const savedMerchants = localStorage.getItem('umkm_merchants');
+      let currentMerchants = INITIAL_MERCHANTS;
+      if (savedMerchants) {
+        currentMerchants = JSON.parse(savedMerchants);
+        setMerchants(currentMerchants);
       }
-      const savedProducts = localStorage.getItem('umkm_products');
-      if (savedProducts) {
-        setProducts(JSON.parse(savedProducts));
+
+      const savedAllStores = localStorage.getItem('umkm_all_stores');
+      let currentAllStores = STORE_PRESETS;
+      if (savedAllStores) {
+        currentAllStores = JSON.parse(savedAllStores);
+        setAllStores(currentAllStores);
+      }
+
+      const targetSlug = storeSlugParam || 'padang-jaya';
+      if (currentAllStores[targetSlug]) {
+        setActiveStoreSlug(targetSlug);
+        setStoreInfo(currentAllStores[targetSlug].store);
+        setProducts(currentAllStores[targetSlug].products);
       }
     } catch (e) {
       console.warn('LocalStorage error:', e);
@@ -64,11 +86,108 @@ export default function HomePage() {
 
   const handleUpdateStore = (newStore: StoreInfo) => {
     setStoreInfo(newStore);
-    try {
-      localStorage.setItem('umkm_store_info', JSON.stringify(newStore));
-    } catch (e) {
-      console.warn('LocalStorage save error:', e);
+    setAllStores((prev) => {
+      const updated = {
+        ...prev,
+        [activeStoreSlug]: {
+          store: newStore,
+          products: prev[activeStoreSlug]?.products || products,
+        },
+      };
+      try {
+        localStorage.setItem('umkm_all_stores', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage save error:', e);
+      }
+      return updated;
+    });
+  };
+
+  const handleRegisterMerchant = (
+    newMerchant: MerchantAccount,
+    newStore: StoreInfo,
+    sampleProducts: Product[]
+  ) => {
+    const slug = newMerchant.storeSlug;
+    setMerchants((prev) => {
+      const updated = [newMerchant, ...prev];
+      try {
+        localStorage.setItem('umkm_merchants', JSON.stringify(updated));
+      } catch (e) {
+        console.warn(e);
+      }
+      return updated;
+    });
+
+    setAllStores((prev) => {
+      const updated = {
+        ...prev,
+        [slug]: {
+          store: newStore,
+          products: sampleProducts,
+        },
+      };
+      try {
+        localStorage.setItem('umkm_all_stores', JSON.stringify(updated));
+      } catch (e) {
+        console.warn(e);
+      }
+      return updated;
+    });
+
+    setActiveStoreSlug(slug);
+    setStoreInfo(newStore);
+    setProducts(sampleProducts);
+    setCartItems([]);
+    setActiveTab('admin'); // Directly go to seller dashboard!
+  };
+
+  const handleLoginMerchant = (storeSlug: string) => {
+    const storeData = allStores[storeSlug] || STORE_PRESETS[storeSlug];
+    if (storeData) {
+      setActiveStoreSlug(storeSlug);
+      setStoreInfo(storeData.store);
+      setProducts(storeData.products);
+      setCartItems([]);
+      setActiveTab('admin');
     }
+  };
+
+  const handleSelectStoreFromSuperAdmin = (
+    slug: string,
+    targetView: 'customer' | 'admin'
+  ) => {
+    const storeData = allStores[slug] || STORE_PRESETS[slug];
+    if (storeData) {
+      setActiveStoreSlug(slug);
+      setStoreInfo(storeData.store);
+      setProducts(storeData.products);
+      setCartItems([]);
+      setActiveTab(targetView);
+    }
+  };
+
+  const handleDeleteMerchant = (slug: string) => {
+    setMerchants((prev) => {
+      const updated = prev.filter((m) => m.storeSlug !== slug);
+      try {
+        localStorage.setItem('umkm_merchants', JSON.stringify(updated));
+      } catch (e) {
+        console.warn(e);
+      }
+      return updated;
+    });
+
+    setAllStores((prev) => {
+      const copy = { ...prev };
+      delete copy[slug];
+      try {
+        localStorage.setItem('umkm_all_stores', JSON.stringify(copy));
+      } catch (e) {
+        console.warn(e);
+      }
+      return copy;
+    });
   };
 
   // Cart State
@@ -383,7 +502,7 @@ export default function HomePage() {
             store={storeInfo}
           />
         </main>
-      ) : (
+      ) : activeTab === 'admin' ? (
         /* BACKEND DASHBOARD (OWNER / ADMIN) */
         <AdminDashboard
           store={storeInfo}
@@ -396,6 +515,26 @@ export default function HomePage() {
           orders={orders}
           onUpdateOrderStatus={handleUpdateOrderStatus}
           onSwitchToCustomerView={() => setActiveTab('customer')}
+        />
+      ) : activeTab === 'auth' ? (
+        /* MERCHANT AUTH (LOGIN & SIGN UP) */
+        <AuthView
+          merchants={merchants}
+          onRegister={handleRegisterMerchant}
+          onLogin={handleLoginMerchant}
+          onBackToCustomer={() => setActiveTab('customer')}
+          onGoToSuperAdmin={() => setActiveTab('superadmin')}
+        />
+      ) : (
+        /* SUPER ADMIN DASHBOARD (PLATFORM OWNER) */
+        <SuperAdminDashboard
+          merchants={merchants}
+          allStores={allStores}
+          onSelectStore={handleSelectStoreFromSuperAdmin}
+          onAddMerchant={handleRegisterMerchant}
+          onDeleteMerchant={handleDeleteMerchant}
+          onBackToCustomer={() => setActiveTab('customer')}
+          onGoToAuth={() => setActiveTab('auth')}
         />
       )}
 
