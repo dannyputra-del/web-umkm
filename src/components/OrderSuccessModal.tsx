@@ -40,12 +40,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
         ? 'Transfer Bank'
         : 'Tunai di Kasir';
 
+    const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
+
     const orderTypeText =
       order.customer.orderType === 'dine_in'
         ? `Makan di Tempat (Meja: ${order.customer.tableNumber || '-'})`
         : order.customer.orderType === 'takeaway'
-        ? 'Bungkus Sendiri (Takeaway)'
-        : `Pesan Antar (Alamat: ${order.customer.address || '-'})`;
+        ? `Ambil Sendiri / Pickup (Pesan Kurir Sendiri)\n📍 Titik Pickup: ${store.address}\n🗺️ Link Maps: ${mapsUrl}`
+        : `Pesan Antar (Alamat: ${order.customer.address || '-'} • Mohon konfirmasi ongkir)`;
 
     const message = `Halo ${store.name}, saya baru saja memesan via Website Menu Online! 🍽️
 
@@ -69,6 +71,8 @@ Mohon segera diproses ya, terima kasih banyak!`;
   };
 
   const whatsappUrl = `https://wa.me/${store.whatsapp}?text=${generateWhatsAppMessage()}`;
+
+  const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
 
   return (
     <div className="modal-overlay">
@@ -105,8 +109,8 @@ Mohon segera diproses ya, terima kasih banyak!`;
                   {order.customer.orderType === 'dine_in'
                     ? `Makan di Tempat • ${order.customer.tableNumber}`
                     : order.customer.orderType === 'takeaway'
-                    ? 'Bungkus (Takeaway)'
-                    : `Antar • ${order.customer.address}`}
+                    ? 'Ambil Sendiri (Pickup)'
+                    : `Pesan Antar • ${order.customer.address}`}
                 </span>
               </div>
               <div className="detail-row">
@@ -143,6 +147,27 @@ Mohon segera diproses ya, terima kasih banyak!`;
               <span className="total-val">{formatRupiah(order.total)}</span>
             </div>
           </div>
+
+          {/* Pickup Notice Card when customer chooses Takeaway */}
+          {order.customer.orderType === 'takeaway' && (
+            <div className="success-pickup-card">
+              <div className="pickup-title-row">
+                <span className="pickup-icon-pin">📍</span>
+                <div>
+                  <strong>Titik Penjemputan Toko (Pickup):</strong>
+                  <p className="pickup-store-sub">{store.name} • {store.address}</p>
+                </div>
+              </div>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-success-maps"
+              >
+                🗺️ Buka Rute Google Maps (Titik Jemput Kurir) ↗
+              </a>
+            </div>
+          )}
 
           {/* Quick Notice */}
           <div className="kitchen-status-pill">
@@ -328,6 +353,54 @@ Mohon segera diproses ya, terima kasih banyak!`;
           font-size: 1.15rem;
           font-weight: 800;
           color: var(--accent-green);
+        }
+
+        .success-pickup-card {
+          background: #f0fdf4;
+          border: 1.5px solid #bbf7d0;
+          border-radius: var(--radius-md);
+          padding: 12px 14px;
+          margin-bottom: 14px;
+          text-align: left;
+        }
+
+        .pickup-title-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          font-size: 0.8rem;
+          color: #166534;
+        }
+
+        .pickup-icon-pin {
+          font-size: 1.2rem;
+        }
+
+        .pickup-store-sub {
+          font-size: 0.78rem;
+          color: #334155;
+          margin-top: 2px;
+          line-height: 1.35;
+        }
+
+        .btn-success-maps {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #3b82f6;
+          color: white;
+          text-decoration: none;
+          font-size: 0.78rem;
+          font-weight: 700;
+          padding: 7px 12px;
+          border-radius: 8px;
+          margin-top: 8px;
+          margin-left: 28px;
+          transition: background 0.2s ease;
+        }
+
+        .btn-success-maps:hover {
+          background: #2563eb;
         }
 
         .kitchen-status-pill {

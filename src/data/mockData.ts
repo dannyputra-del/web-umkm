@@ -13,6 +13,7 @@ export const INITIAL_STORE_INFO: StoreInfo = {
   logo: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80',
   banner: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1200&q=80',
   backgroundColor: '#f8fafc',
+  googleMapsUrl: 'https://maps.google.com/?q=Restoran+Padang+Jaya+Makmur+Rawamangun+Jakarta',
 };
 
 export const INITIAL_PRODUCTS: Product[] = [

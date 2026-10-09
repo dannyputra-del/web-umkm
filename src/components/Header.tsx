@@ -18,6 +18,8 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
 }) => {
+  const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
+
   return (
     <header className="store-header">
       {/* Admin / Customer View Switcher Bar */}
@@ -85,7 +87,18 @@ export const Header: React.FC<HeaderProps> = ({
 
           <h1 className="store-name-title">{store.name}</h1>
           <p className="store-tagline-text">{store.tagline}</p>
-          <p className="store-address-text">📍 {store.address}</p>
+          <div className="store-address-row">
+            <span className="store-address-text">📍 {store.address}</span>
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="store-maps-chip"
+              title="Buka titik lokasi di Google Maps"
+            >
+              🗺️ Buka di Google Maps ↗
+            </a>
+          </div>
         </div>
 
         {/* Quick Contact & Action Buttons */}
@@ -96,7 +109,16 @@ export const Header: React.FC<HeaderProps> = ({
             rel="noopener noreferrer"
             className="action-link-btn whatsapp-btn"
           >
-            💬 Chat WhatsApp
+            💬 Chat WA
+          </a>
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="action-link-btn maps-btn"
+            title="Buka titik jemput di Google Maps"
+          >
+            📍 Lokasi Maps
           </a>
           <button
             className="action-link-btn outline-btn"
@@ -105,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
               alert('Link menu toko berhasil disalin!');
             }}
           >
-            🔗 Bagikan Menu
+            🔗 Bagikan
           </button>
         </div>
       </div>
@@ -342,17 +364,45 @@ export const Header: React.FC<HeaderProps> = ({
           margin-bottom: 6px;
         }
 
+        .store-address-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+
         .store-address-text {
           font-size: 0.78rem;
           color: #94a3b8;
-          margin-bottom: 14px;
+        }
+
+        .store-maps-chip {
+          background: #eff6ff;
+          color: #2563eb;
+          border: 1px solid #bfdbfe;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          text-decoration: none;
+          transition: all 0.2s ease;
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+        }
+
+        .store-maps-chip:hover {
+          background: #dbeafe;
+          transform: translateY(-1px);
         }
 
         .store-action-buttons {
           display: flex;
           gap: 10px;
           width: 100%;
-          max-width: 380px;
+          max-width: 440px;
           justify-content: center;
         }
 
@@ -362,12 +412,13 @@ export const Header: React.FC<HeaderProps> = ({
           align-items: center;
           justify-content: center;
           gap: 6px;
-          padding: 9px 14px;
+          padding: 9px 12px;
           border-radius: var(--radius-md);
-          font-size: 0.82rem;
+          font-size: 0.8rem;
           font-weight: 600;
           text-decoration: none;
           transition: all 0.2s ease;
+          white-space: nowrap;
         }
 
         .whatsapp-btn {
@@ -378,6 +429,16 @@ export const Header: React.FC<HeaderProps> = ({
 
         .whatsapp-btn:hover {
           background: #16a34a;
+        }
+
+        .maps-btn {
+          background: #3b82f6;
+          color: #ffffff;
+          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.25);
+        }
+
+        .maps-btn:hover {
+          background: #2563eb;
         }
 
         .outline-btn {

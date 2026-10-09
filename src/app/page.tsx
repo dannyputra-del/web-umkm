@@ -166,17 +166,17 @@ export default function HomePage() {
       (sum, item) => sum + item.product.price * item.quantity,
       0
     );
-    const deliveryFee = customerDetails.orderType === 'delivery' ? 10000 : 0;
+    const deliveryFee = 0; // Ongkir Rp 0 (Ambil Sendiri / Ongkir dicek penjual via WA)
     const serviceFee = 2000;
     return subtotal + deliveryFee + serviceFee;
-  }, [cartItems, customerDetails.orderType]);
+  }, [cartItems]);
 
   const handleConfirmOrder = () => {
     const subtotal = cartItems.reduce(
       (sum, item) => sum + item.product.price * item.quantity,
       0
     );
-    const deliveryFee = customerDetails.orderType === 'delivery' ? 10000 : 0;
+    const deliveryFee = 0;
     const serviceFee = 2000;
 
     const newOrderNumber = `#JM-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -363,6 +363,7 @@ export default function HomePage() {
             customer={customerDetails}
             onUpdateCustomer={setCustomerDetails}
             onProceedToPayment={handleProceedToPayment}
+            store={storeInfo}
           />
 
           <PaymentModal

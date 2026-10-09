@@ -58,4 +58,5 @@ export interface StoreInfo {
   logo: string;
   banner: string;
   backgroundColor?: string;
+  googleMapsUrl?: string;
 }

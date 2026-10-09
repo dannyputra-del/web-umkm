@@ -639,6 +639,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="form-input form-textarea"
                   />
                 </div>
+
+                <div className="form-group">
+                  <label className="form-label">Link Google Maps Lokasi Toko (Titik Pickup Kurir / Pembeli)</label>
+                  <div className="wa-input-row">
+                    <input
+                      type="url"
+                      placeholder="Cth: https://maps.app.goo.gl/... atau https://maps.google.com/..."
+                      value={storeDraft.googleMapsUrl || ''}
+                      onChange={(e) => setStoreDraft({ ...storeDraft, googleMapsUrl: e.target.value })}
+                      className="form-input"
+                    />
+                    {storeDraft.googleMapsUrl && (
+                      <a
+                        href={storeDraft.googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-test-wa"
+                        style={{ backgroundColor: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}
+                      >
+                        🗺️ Tes Buka Maps
+                      </a>
+                    )}
+                  </div>
+                  <span className="input-hint">
+                    Buka Google Maps, cari lokasi toko Anda, klik tombol <strong>Bagikan / Share</strong> lalu salin tautan ke sini. Pembeli akan melihat tombol <strong>📍 Buka di Google Maps</strong> di website.
+                  </span>
+                </div>
               </div>
 
               {/* Card 4: Pilihan Tema & Warna Latar Belakang */}
@@ -796,8 +823,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         className="mock-wa-btn"
                         onClick={(e) => e.preventDefault()}
                       >
-                        💬 Chat WhatsApp ({storeDraft.whatsapp || 'Belum diisi'})
+                        💬 Chat WA
                       </a>
+                      {storeDraft.googleMapsUrl && (
+                        <a
+                          href={storeDraft.googleMapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mock-maps-btn"
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          📍 Google Maps
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1960,6 +1998,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         .mock-btn-row {
           display: flex;
           justify-content: center;
+          gap: 8px;
+          flex-wrap: wrap;
         }
 
         .mock-wa-btn {
@@ -1968,7 +2008,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           text-decoration: none;
           font-size: 0.8rem;
           font-weight: 700;
-          padding: 8px 18px;
+          padding: 8px 14px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .mock-maps-btn {
+          background: #3b82f6;
+          color: white;
+          text-decoration: none;
+          font-size: 0.8rem;
+          font-weight: 700;
+          padding: 8px 14px;
           border-radius: 999px;
           display: inline-flex;
           align-items: center;
