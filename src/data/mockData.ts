@@ -183,6 +183,8 @@ export const INITIAL_MERCHANTS: MerchantAccount[] = [
     category: 'Kuliner Nusantara / Rumah Makan Padang',
     createdAt: '2026-09-15',
     status: 'active',
+    subscriptionPlan: 'Paket Pro (Tahunan)',
+    subscriptionExpiry: '2027-09-15',
   },
   {
     id: 'merch-2',
@@ -194,6 +196,8 @@ export const INITIAL_MERCHANTS: MerchantAccount[] = [
     category: 'Kedai Kopi & Minuman Kekinian',
     createdAt: '2026-10-01',
     status: 'active',
+    subscriptionPlan: 'Paket Starter (Bulanan)',
+    subscriptionExpiry: '2026-11-01',
   },
   {
     id: 'merch-3',
@@ -204,7 +208,10 @@ export const INITIAL_MERCHANTS: MerchantAccount[] = [
     storeName: 'Batik & Tenun Nusantara',
     category: 'Fashion, Busana & Aksesoris',
     createdAt: '2026-10-05',
-    status: 'active',
+    status: 'pending',
+    statusReason: 'Menunggu verifikasi pendaftaran akun baru',
+    subscriptionPlan: 'Uji Coba Gratis (14 Hari)',
+    subscriptionExpiry: '2026-10-19',
   },
 ];
 

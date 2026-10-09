@@ -74,4 +74,7 @@ export interface MerchantAccount {
   category: string;
   createdAt: string;
   status: 'active' | 'pending' | 'suspended';
+  statusReason?: string;
+  subscriptionPlan?: string;
+  subscriptionExpiry?: string;
 }

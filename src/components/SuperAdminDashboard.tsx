@@ -9,6 +9,7 @@ interface SuperAdminDashboardProps {
   onSelectStore: (slug: string, targetView: 'customer' | 'admin') => void;
   onAddMerchant: (merchant: MerchantAccount, newStore: StoreInfo, products: Product[]) => void;
   onDeleteMerchant: (slug: string) => void;
+  onUpdateMerchantStatus: (slug: string, newStatus: 'active' | 'pending' | 'suspended', reason?: string) => void;
   onBackToCustomer: () => void;
   onGoToAuth: () => void;
 }
@@ -19,12 +20,42 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   onSelectStore,
   onAddMerchant,
   onDeleteMerchant,
+  onUpdateMerchantStatus,
   onBackToCustomer,
   onGoToAuth,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  // Status Management Modal State
+  const [statusModalMerchant, setStatusModalMerchant] = useState<MerchantAccount | null>(null);
+  const [targetStatus, setTargetStatus] = useState<'active' | 'pending' | 'suspended'>('active');
+  const [statusReasonCategory, setStatusReasonCategory] = useState<string>('Masa Langganan Habis / Perlu Perpanjangan');
+  const [customReasonText, setCustomReasonText] = useState<string>('');
+
+  const handleOpenStatusModal = (merchant: MerchantAccount) => {
+    setStatusModalMerchant(merchant);
+    setTargetStatus(merchant.status);
+    setStatusReasonCategory(merchant.statusReason || 'Masa Langganan Habis / Perlu Perpanjangan');
+    setCustomReasonText(merchant.statusReason || '');
+  };
+
+  const handleSaveStatus = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!statusModalMerchant) return;
+    const finalReason = statusReasonCategory === 'Lainnya (Kustom)' ? customReasonText.trim() : statusReasonCategory;
+    onUpdateMerchantStatus(statusModalMerchant.storeSlug, targetStatus, finalReason);
+    setStatusModalMerchant(null);
+  };
+
+  const handleQuickStatusChange = (
+    merchant: MerchantAccount,
+    newStatus: 'active' | 'pending' | 'suspended',
+    defaultReason?: string
+  ) => {
+    onUpdateMerchantStatus(merchant.storeSlug, newStatus, defaultReason);
+  };
 
   // Manual Add Merchant State
   const [manualForm, setManualForm] = useState({
@@ -220,8 +251,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <th>Nama Toko UMKM</th>
               <th>Pemilik & WhatsApp</th>
               <th>Alamat URL Web (Slug)</th>
-              <th>Status</th>
-              <th>Aksi Pengelolaan</th>
+              <th style={{ minWidth: '220px' }}>Status & Tindakan Toko</th>
+              <th style={{ minWidth: '180px' }}>Akses & Pengelolaan</th>
             </tr>
           </thead>
           <tbody>
@@ -293,14 +324,79 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                       </div>
                     </td>
 
-                    {/* Status Cell */}
+                    {/* Status & Quick Action Cell */}
                     <td>
-                      <span className={`status-pill ${m.status}`}>
-                        {m.status === 'active' ? '🟢 Aktif' : '🟡 Pending'}
-                      </span>
+                      <div className="status-cell-wrapper">
+                        <div className="status-badge-row">
+                          <span className={`status-pill ${m.status}`}>
+                            {m.status === 'active' && '🟢 Aktif (Tayang)'}
+                            {m.status === 'pending' && '🟡 Menunggu Konfirmasi'}
+                            {m.status === 'suspended' && '🔴 Dinonaktifkan'}
+                          </span>
+                        </div>
+
+                        {/* Subscription & Reason Info */}
+                        <div className="sub-plan-row">
+                          <span className="sub-plan-badge">
+                            💳 {m.subscriptionPlan || 'Paket UMKM'}
+                          </span>
+                          <span className="sub-expiry-text">
+                            {m.subscriptionExpiry ? `s.d. ${m.subscriptionExpiry}` : 'Aktif'}
+                          </span>
+                        </div>
+
+                        {m.statusReason && (
+                          <div className="status-reason-chip" title={m.statusReason}>
+                            <span>📌</span>
+                            <span className="status-reason-text">{m.statusReason}</span>
+                          </div>
+                        )}
+
+                        {/* Action buttons for status */}
+                        <div className="status-actions-group">
+                          {m.status === 'pending' && (
+                            <button
+                              type="button"
+                              className="btn-quick-status btn-status-approve"
+                              onClick={() => handleQuickStatusChange(m, 'active')}
+                              title="Setujui dan Aktifkan Toko Ini"
+                            >
+                              ✓ Konfirmasi
+                            </button>
+                          )}
+                          {m.status === 'active' && (
+                            <button
+                              type="button"
+                              className="btn-quick-status btn-status-suspend"
+                              onClick={() => handleOpenStatusModal(m)}
+                              title="Nonaktifkan Toko Ini (Masa Berlangganan/TOS)"
+                            >
+                              ⛔ Nonaktifkan
+                            </button>
+                          )}
+                          {m.status === 'suspended' && (
+                            <button
+                              type="button"
+                              className="btn-quick-status btn-status-reactivate"
+                              onClick={() => handleQuickStatusChange(m, 'active')}
+                              title="Aktifkan Kembali Toko Ini"
+                            >
+                              🔄 Aktifkan
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-quick-status btn-status-settings"
+                            onClick={() => handleOpenStatusModal(m)}
+                            title="Buka Pengaturan Status & Langganan Toko"
+                          >
+                            ⚙️ Kelola
+                          </button>
+                        </div>
+                      </div>
                     </td>
 
-                    {/* Action Cell */}
+                    {/* Navigation & Management Cell */}
                     <td>
                       <div className="table-actions">
                         <button
@@ -316,7 +412,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                           onClick={() => onSelectStore(m.storeSlug, 'admin')}
                           title="Buka Dashboard Pengelolaan Toko Ini"
                         >
-                          ⚙️ Dashboard
+                          🛠️ Dashboard
                         </button>
 
                         {merchants.length > 1 && (
@@ -459,6 +555,170 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL KELOLA STATUS TOKO (SUPER ADMIN) */}
+      {statusModalMerchant && (
+        <div className="modal-overlay" onClick={() => setStatusModalMerchant(null)}>
+          <div className="modal-sheet modal-status-manage" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-with-desc">
+                <h3 className="modal-title">
+                  <span>🛡️</span>
+                  <span>Kelola Status & Akses Toko</span>
+                </h3>
+                <p className="modal-subtitle">
+                  Atur status tayang etalase web dan kelola hak akses mitra <strong>{statusModalMerchant.storeName}</strong>
+                </p>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setStatusModalMerchant(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStatus} className="modal-body">
+              {/* Store Summary Card */}
+              <div className="store-summary-card">
+                <div className="summary-left">
+                  <strong className="summary-name">{statusModalMerchant.storeName}</strong>
+                  <span className="summary-slug">🔗 ?store={statusModalMerchant.storeSlug}</span>
+                  <span className="summary-owner">👤 {statusModalMerchant.ownerName} ({statusModalMerchant.phone})</span>
+                </div>
+                <div className="summary-right">
+                  <span className={`status-pill ${statusModalMerchant.status}`}>
+                    {statusModalMerchant.status === 'active' && '🟢 Aktif Saat Ini'}
+                    {statusModalMerchant.status === 'pending' && '🟡 Menunggu Konfirmasi'}
+                    {statusModalMerchant.status === 'suspended' && '🔴 Sedang Nonaktif'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status Radio Tiles */}
+              <div className="form-group">
+                <label className="form-label">Tentukan Status Operasional Toko</label>
+                <div className="status-radio-grid">
+                  <label className={`status-radio-card ${targetStatus === 'active' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="storeStatus"
+                      value="active"
+                      checked={targetStatus === 'active'}
+                      onChange={() => setTargetStatus('active')}
+                    />
+                    <div className="radio-card-content">
+                      <div className="radio-card-header">
+                        <span className="radio-emoji">🟢</span>
+                        <strong>Aktif (Live & Tayang)</strong>
+                      </div>
+                      <p>Toko beroperasi penuh. Pelanggan bebas menjelajah menu dan melakukan checkout pesanan.</p>
+                    </div>
+                  </label>
+
+                  <label className={`status-radio-card ${targetStatus === 'pending' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="storeStatus"
+                      value="pending"
+                      checked={targetStatus === 'pending'}
+                      onChange={() => setTargetStatus('pending')}
+                    />
+                    <div className="radio-card-content">
+                      <div className="radio-card-header">
+                        <span className="radio-emoji">🟡</span>
+                        <strong>Menunggu Konfirmasi</strong>
+                      </div>
+                      <p>Toko masih dalam antrean verifikasi platform sebelum siap diluncurkan ke pembeli.</p>
+                    </div>
+                  </label>
+
+                  <label className={`status-radio-card ${targetStatus === 'suspended' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="storeStatus"
+                      value="suspended"
+                      checked={targetStatus === 'suspended'}
+                      onChange={() => setTargetStatus('suspended')}
+                    />
+                    <div className="radio-card-content">
+                      <div className="radio-card-header">
+                        <span className="radio-emoji">🔴</span>
+                        <strong>Nonaktifkan Toko</strong>
+                      </div>
+                      <p>Masa langganan habis atau sedang rehat. Pelanggan diarahkan ke tampilan santun & persuasif.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Reason Selector */}
+              <div className="form-group">
+                <label className="form-label">
+                  Alasan / Catatan Tindakan Super Admin
+                </label>
+                <select
+                  value={statusReasonCategory}
+                  onChange={(e) => setStatusReasonCategory(e.target.value)}
+                  className="form-select"
+                >
+                  <option value="Masa Langganan Habis / Perlu Perpanjangan">
+                    💳 Masa Langganan Habis (Perlu Perpanjangan)
+                  </option>
+                  <option value="Rehat Sementara / Peningkatan Kualitas Menu">
+                    ☕ Rehat Sementara / Peningkatan Kualitas Layanan
+                  </option>
+                  <option value="Pemeriksaan Kebijakan & Penyesuaian TOS">
+                    📋 Pemeriksaan Kebijakan & Penyesuaian TOS
+                  </option>
+                  <option value="Permintaan Khusus dari Pemilik Toko">
+                    🤝 Permintaan Khusus dari Pemilik Toko
+                  </option>
+                  <option value="Lainnya (Kustom)">
+                    ✍️ Alasan Lainnya (Kustom)
+                  </option>
+                </select>
+
+                {statusReasonCategory === 'Lainnya (Kustom)' && (
+                  <textarea
+                    rows={2}
+                    placeholder="Tuliskan catatan khusus admin di sini..."
+                    value={customReasonText}
+                    onChange={(e) => setCustomReasonText(e.target.value)}
+                    className="form-input"
+                    style={{ marginTop: '8px' }}
+                  />
+                )}
+              </div>
+
+              {/* Brand Protection Notice (Persuasive & Brand Safe) */}
+              <div className="brand-protection-notice">
+                <span className="shield-icon">🛡️</span>
+                <div className="protection-text">
+                  <strong>Jaminan Melindungi Citra & Reputasi Brand UMKM:</strong>
+                  <p>
+                    Ketika toko dinonaktifkan, URL web toko yang diakses pelanggan <em>TIDAK</em> akan menampilkan tulisan negatif atau memalukan. Sistem akan menampilkan pemberitahuan ramah (<em>"Layanan Sedang Rehat Sementara untuk Peningkatan Kualitas"</em>) lengkap dengan tombol kontak WhatsApp langsung ke penjual.
+                  </p>
+                </div>
+              </div>
+
+              <div className="modal-footer-strip">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={() => setStatusModalMerchant(null)}
+                >
+                  Batal
+                </button>
+                <button type="submit" className="btn-save-new">
+                  Simpan Perubahan Status
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
 
       <style jsx>{`
         .superadmin-container {
@@ -801,11 +1061,27 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           text-decoration: underline;
         }
 
+        .status-cell-wrapper {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .status-badge-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
         .status-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
           padding: 4px 10px;
           border-radius: 999px;
-          font-size: 0.72rem;
+          font-size: 0.73rem;
           font-weight: 700;
+          letter-spacing: -0.01em;
         }
 
         .status-pill.active {
@@ -818,6 +1094,111 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           background: #fffbeb;
           color: #b45309;
           border: 1px solid #fde68a;
+        }
+
+        .status-pill.suspended {
+          background: #fef2f2;
+          color: #991b1b;
+          border: 1px solid #fecaca;
+        }
+
+        .sub-plan-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.72rem;
+          flex-wrap: wrap;
+        }
+
+        .sub-plan-badge {
+          background: #f1f5f9;
+          color: #334155;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
+
+        .sub-expiry-text {
+          color: #64748b;
+          font-size: 0.7rem;
+        }
+
+        .status-reason-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: #fff1f2;
+          border: 1px solid #ffe4e6;
+          color: #be123c;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 0.7rem;
+          max-width: 220px;
+        }
+
+        .status-reason-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .status-actions-group {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          margin-top: 2px;
+          flex-wrap: wrap;
+        }
+
+        .btn-quick-status {
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          cursor: pointer;
+          border: 1px solid transparent;
+          transition: all 0.15s ease;
+        }
+
+        .btn-status-approve {
+          background: #dcfce7;
+          color: #15803d;
+          border-color: #86efac;
+        }
+
+        .btn-status-approve:hover {
+          background: #bbf7d0;
+        }
+
+        .btn-status-suspend {
+          background: #fee2e2;
+          color: #b91c1c;
+          border-color: #fca5a5;
+        }
+
+        .btn-status-suspend:hover {
+          background: #fecaca;
+        }
+
+        .btn-status-reactivate {
+          background: #e0e7ff;
+          color: #4338ca;
+          border-color: #c7d2fe;
+        }
+
+        .btn-status-reactivate:hover {
+          background: #c7d2fe;
+        }
+
+        .btn-status-settings {
+          background: #f8fafc;
+          color: #475569;
+          border-color: #cbd5e1;
+        }
+
+        .btn-status-settings:hover {
+          background: #e2e8f0;
+          color: #1e293b;
         }
 
         .table-actions {
@@ -863,6 +1244,146 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
         .btn-del-merchant:hover {
           background: #fee2e2;
+        }
+
+        /* Modal Status Specific Styles */
+        .modal-status-manage {
+          max-width: 580px;
+        }
+
+        .modal-title-with-desc h3 {
+          margin: 0;
+          font-size: 1.15rem;
+          font-weight: 800;
+          color: #0f172a;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .modal-subtitle {
+          margin: 4px 0 0 0;
+          font-size: 0.78rem;
+          color: #64748b;
+        }
+
+        .store-summary-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: var(--radius-md);
+          padding: 12px 16px;
+          margin-bottom: 16px;
+        }
+
+        .summary-left {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .summary-name {
+          color: #0f172a;
+          font-size: 0.95rem;
+        }
+
+        .summary-slug {
+          font-family: monospace;
+          font-size: 0.75rem;
+          color: #2563eb;
+        }
+
+        .summary-owner {
+          font-size: 0.72rem;
+          color: #64748b;
+        }
+
+        .status-radio-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .status-radio-card {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          padding: 12px 14px;
+          border-radius: var(--radius-md);
+          border: 1.5px solid #e2e8f0;
+          background: #ffffff;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .status-radio-card:hover {
+          border-color: #cbd5e1;
+          background: #fafafa;
+        }
+
+        .status-radio-card.selected {
+          border-color: #3b82f6;
+          background: #eff6ff;
+        }
+
+        .status-radio-card input[type="radio"] {
+          margin-top: 3px;
+          cursor: pointer;
+          accent-color: #2563eb;
+        }
+
+        .radio-card-content {
+          flex: 1;
+        }
+
+        .radio-card-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 2px;
+        }
+
+        .radio-card-header strong {
+          font-size: 0.85rem;
+          color: #0f172a;
+        }
+
+        .radio-card-content p {
+          font-size: 0.74rem;
+          color: #64748b;
+          margin: 0;
+          line-height: 1.35;
+        }
+
+        .brand-protection-notice {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          background: #ecfdf5;
+          border: 1px solid #a7f3d0;
+          padding: 12px 14px;
+          border-radius: var(--radius-md);
+          margin-top: 14px;
+        }
+
+        .shield-icon {
+          font-size: 1.4rem;
+        }
+
+        .protection-text strong {
+          display: block;
+          font-size: 0.78rem;
+          color: #065f46;
+          margin-bottom: 2px;
+        }
+
+        .protection-text p {
+          margin: 0;
+          font-size: 0.72rem;
+          color: #047857;
+          line-height: 1.4;
         }
 
         .empty-table-cell {

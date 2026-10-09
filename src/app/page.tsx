@@ -190,6 +190,30 @@ export default function HomePage() {
     });
   };
 
+  const handleUpdateMerchantStatus = (
+    slug: string,
+    newStatus: 'active' | 'pending' | 'suspended',
+    reason?: string
+  ) => {
+    setMerchants((prev) => {
+      const updated = prev.map((m) =>
+        m.storeSlug === slug
+          ? {
+              ...m,
+              status: newStatus,
+              statusReason: reason || (newStatus === 'active' ? undefined : m.statusReason),
+            }
+          : m
+      );
+      try {
+        localStorage.setItem('umkm_merchants', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage error:', e);
+      }
+      return updated;
+    });
+  };
+
   // Cart State
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
@@ -365,6 +389,8 @@ export default function HomePage() {
     );
   };
 
+  const currentMerchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
+  const isStoreInactive = currentMerchant ? currentMerchant.status !== 'active' : false;
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -393,114 +419,246 @@ export default function HomePage() {
             transition: 'background-color 0.3s ease',
           }}
         >
-          {/* Sticky Category & Search Bar */}
-          <CategoryFilter
-            categories={CATEGORIES}
-            activeCategory={activeCategory}
-            onSelectCategory={setActiveCategory}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-          />
+          {isStoreInactive ? (
+            /* TAMPILAN PERSUASIF & MENJAGA CITRA BRAND SAAT TOKO SEDANG REHAT / NONAKTIF */
+            <div className="store-maintenance-container">
+              <div className="store-maintenance-card">
+                <div className="maintenance-status-pill">
+                  <span className="sparkle-icon">✨</span>
+                  <span>Pemberitahuan Pelanggan</span>
+                </div>
 
-          {/* Promotional Banner Strip */}
-          <div className="promo-callout-strip">
-            <span className="sparkle-icon">✨</span>
-            <span className="promo-text">
-              <strong>Pesan Langsung Tanpa Antri!</strong> Masukkan menu pilihan ke keranjang, konfirmasi meja/alamat, dan pesanan langsung dimasak.
-            </span>
-          </div>
+                <div className="maintenance-store-header">
+                  <img
+                    src={storeInfo.logo}
+                    alt={storeInfo.name}
+                    className="maintenance-store-avatar"
+                  />
+                  <div className="maintenance-header-text">
+                    <h1 className="maintenance-store-title">{storeInfo.name}</h1>
+                    <p className="maintenance-store-tagline">{storeInfo.tagline}</p>
+                  </div>
+                </div>
 
-          {/* Section Title */}
-          <div className="section-title-strip">
-            <h2 className="section-heading">
-              {activeCategory === 'Semua Menu' ? 'Daftar Menu Pilihan' : activeCategory}
-            </h2>
-            <span className="product-count-badge">
-              {filteredProducts.length} menu tersedia
-            </span>
-          </div>
+                <div className="maintenance-reassurance-box">
+                  <div className="reassurance-icon-row">
+                    <span className="reassurance-icon">☕</span>
+                    <span className="reassurance-tag">Layanan Sedang Rehat Sementara</span>
+                  </div>
+                  <h2 className="reassurance-headline">
+                    Kami Sedang Menyiapkan Kualitas Menu & Pelayanan Terbaik untuk Anda
+                  </h2>
+                  <p className="reassurance-paragraph">
+                    Halo pelanggan setia <strong>{storeInfo.name}</strong>! Untuk memastikan setiap hidangan dan pelayanan selalu berada dalam standar mutu dan kesegaran terbaik, etalase online kami saat ini sedang dalam proses pembaruan berkala.
+                  </p>
+                  <p className="reassurance-subparagraph">
+                    Kami mohon maaf atas rehat sejenak ini. Kami akan segera kembali menyapa Anda dengan pengalaman pesan online yang jauh lebih lezat, cepat, dan istimewa!
+                  </p>
+                </div>
 
-          {/* Product Cards Grid */}
-          {filteredProducts.length === 0 ? (
-            <div className="no-products-box">
-              <span className="empty-search-icon">🔍</span>
-              <h3>Menu tidak ditemukan</h3>
-              <p>Coba gunakan kata kunci pencarian lain atau pilih kategori Semua Menu.</p>
-              <button
-                className="btn-reset-filter"
-                onClick={() => {
-                  setSearchQuery('');
-                  setActiveCategory('Semua Menu');
-                }}
-              >
-                Reset Pencarian
-              </button>
+                {/* Direct Action Hub for Customers (WhatsApp & Google Maps) */}
+                <div className="maintenance-contacts-card">
+                  <h3 className="contacts-title">Tetap Terhubung dengan Kami:</h3>
+
+                  <div className="maintenance-button-grid">
+                    {/* 1. Hubungi via WhatsApp */}
+                    <a
+                      href={`https://wa.me/${(storeInfo.whatsapp || storeInfo.phone || '08123456789').replace(/\D/g, '')}?text=${encodeURIComponent(
+                        `Halo ${storeInfo.name}, saya pelanggan setia Anda. Saya ingin menanyakan info menu dan pemesanan ya.`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-maintenance-contact btn-maintenance-wa"
+                    >
+                      <span className="contact-icon">💬</span>
+                      <div className="contact-info">
+                        <strong>Chat Pemilik Toko via WhatsApp</strong>
+                        <span>Hubungi langsung di {storeInfo.phone}</span>
+                      </div>
+                    </a>
+
+                    {/* 2. Cek Rute Google Maps / Outlet Fisik */}
+                    {storeInfo.googleMapsUrl ? (
+                      <a
+                        href={storeInfo.googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-maintenance-contact btn-maintenance-maps"
+                      >
+                        <span className="contact-icon">📍</span>
+                        <div className="contact-info">
+                          <strong>Kunjungi Outlet Offline Kami</strong>
+                          <span>Petunjuk arah Google Maps ({storeInfo.address})</span>
+                        </div>
+                      </a>
+                    ) : storeInfo.address ? (
+                      <div className="btn-maintenance-contact btn-maintenance-addr">
+                        <span className="contact-icon">🏠</span>
+                        <div className="contact-info">
+                          <strong>Alamat Outlet Kami</strong>
+                          <span>{storeInfo.address} • Jam: {storeInfo.openingHours}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Jelajahi Mitra UMKM Lainnya */}
+                <div className="maintenance-other-stores">
+                  <span className="other-stores-heading">
+                    🛍️ Ingin memesan kuliner atau produk sekarang? Kunjungi mitra UMKM lainnya:
+                  </span>
+                  <div className="other-stores-chips">
+                    {merchants
+                      .filter((m) => m.storeSlug !== activeStoreSlug && m.status === 'active')
+                      .map((otherM) => (
+                        <button
+                          key={otherM.storeSlug}
+                          type="button"
+                          className="other-store-chip"
+                          onClick={() => handleSelectStoreFromSuperAdmin(otherM.storeSlug, 'customer')}
+                        >
+                          <span>🏪</span>
+                          <span>{otherM.storeName}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Discrete Owner Login Link */}
+                <div className="maintenance-discrete-footer">
+                  <span>Pemilik Toko {storeInfo.name}? </span>
+                  <button
+                    type="button"
+                    className="discrete-link"
+                    onClick={() => handleLoginMerchant(activeStoreSlug)}
+                  >
+                    Masuk ke Dashboard Toko
+                  </button>
+                  <span> • </span>
+                  <button
+                    type="button"
+                    className="discrete-link"
+                    onClick={() => setActiveTab('superadmin')}
+                  >
+                    Super Admin
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="products-grid">
-              {filteredProducts.map((prod) => {
-                const cartItem = cartItems.find((i) => i.product.id === prod.id);
-                const currentQty = cartItem ? cartItem.quantity : 0;
-                return (
-                  <ProductCard
-                    key={prod.id}
-                    product={prod}
-                    cartQuantity={currentQty}
-                    onAddToCart={handleAddToCart}
-                    onUpdateQuantity={handleUpdateQuantity}
-                  />
-                );
-              })}
-            </div>
+            /* ETALASE BELANJA NORMAL (TOKO AKTIF) */
+            <>
+              {/* Sticky Category & Search Bar */}
+              <CategoryFilter
+                categories={CATEGORIES}
+                activeCategory={activeCategory}
+                onSelectCategory={setActiveCategory}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+              />
+
+              {/* Promotional Banner Strip */}
+              <div className="promo-callout-strip">
+                <span className="sparkle-icon">✨</span>
+                <span className="promo-text">
+                  <strong>Pesan Langsung Tanpa Antri!</strong> Masukkan menu pilihan ke keranjang, konfirmasi meja/alamat, dan pesanan langsung dimasak.
+                </span>
+              </div>
+
+              {/* Section Title */}
+              <div className="section-title-strip">
+                <h2 className="section-heading">
+                  {activeCategory === 'Semua Menu' ? 'Daftar Menu Pilihan' : activeCategory}
+                </h2>
+                <span className="product-count-badge">
+                  {filteredProducts.length} menu tersedia
+                </span>
+              </div>
+
+              {/* Product Cards Grid */}
+              {filteredProducts.length === 0 ? (
+                <div className="no-products-box">
+                  <span className="empty-search-icon">🔍</span>
+                  <h3>Menu tidak ditemukan</h3>
+                  <p>Coba gunakan kata kunci pencarian lain atau pilih kategori Semua Menu.</p>
+                  <button
+                    className="btn-reset-filter"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setActiveCategory('Semua Menu');
+                    }}
+                  >
+                    Reset Pencarian
+                  </button>
+                </div>
+              ) : (
+                <div className="products-grid">
+                  {filteredProducts.map((prod) => {
+                    const cartItem = cartItems.find((i) => i.product.id === prod.id);
+                    const currentQty = cartItem ? cartItem.quantity : 0;
+                    return (
+                      <ProductCard
+                        key={prod.id}
+                        product={prod}
+                        cartQuantity={currentQty}
+                        onAddToCart={handleAddToCart}
+                        onUpdateQuantity={handleUpdateQuantity}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Bottom Space for Floating Cart */}
+              <div className="bottom-pad" />
+
+              {/* Sticky Floating Bottom Cart Bar */}
+              <CartFloatingBar
+                items={cartItems}
+                onOpenCart={() => setIsCartOpen(true)}
+                onClearCart={() => setCartItems([])}
+              />
+
+              {/* Interactive Modals */}
+              <CartDrawer
+                isOpen={isCartOpen}
+                onClose={() => setIsCartOpen(false)}
+                items={cartItems}
+                onUpdateQuantity={handleUpdateQuantity}
+                onUpdateNotes={handleUpdateNotes}
+                onProceedToCheckout={handleProceedToCheckout}
+              />
+
+              <CheckoutModal
+                isOpen={isCheckoutOpen}
+                onClose={() => setIsCheckoutOpen(false)}
+                onBackToCart={handleBackToCart}
+                items={cartItems}
+                customer={customerDetails}
+                onUpdateCustomer={setCustomerDetails}
+                onProceedToPayment={handleProceedToPayment}
+                store={storeInfo}
+              />
+
+              <PaymentModal
+                isOpen={isPaymentOpen}
+                onClose={() => setIsPaymentOpen(false)}
+                onBackToCheckout={handleBackToCheckout}
+                totalAmount={totalBill}
+                selectedPayment={selectedPaymentMethod}
+                onSelectPayment={setSelectedPaymentMethod}
+                onConfirmOrder={handleConfirmOrder}
+              />
+
+              <OrderSuccessModal
+                isOpen={isSuccessOpen}
+                onClose={() => setIsSuccessOpen(false)}
+                order={completedOrder}
+                store={storeInfo}
+              />
+            </>
           )}
-
-          {/* Bottom Space for Floating Cart */}
-          <div className="bottom-pad" />
-
-          {/* Sticky Floating Bottom Cart Bar */}
-          <CartFloatingBar
-            items={cartItems}
-            onOpenCart={() => setIsCartOpen(true)}
-            onClearCart={() => setCartItems([])}
-          />
-
-          {/* Interactive Modals */}
-          <CartDrawer
-            isOpen={isCartOpen}
-            onClose={() => setIsCartOpen(false)}
-            items={cartItems}
-            onUpdateQuantity={handleUpdateQuantity}
-            onUpdateNotes={handleUpdateNotes}
-            onProceedToCheckout={handleProceedToCheckout}
-          />
-
-          <CheckoutModal
-            isOpen={isCheckoutOpen}
-            onClose={() => setIsCheckoutOpen(false)}
-            onBackToCart={handleBackToCart}
-            items={cartItems}
-            customer={customerDetails}
-            onUpdateCustomer={setCustomerDetails}
-            onProceedToPayment={handleProceedToPayment}
-            store={storeInfo}
-          />
-
-          <PaymentModal
-            isOpen={isPaymentOpen}
-            onClose={() => setIsPaymentOpen(false)}
-            onBackToCheckout={handleBackToCheckout}
-            totalAmount={totalBill}
-            selectedPayment={selectedPaymentMethod}
-            onSelectPayment={setSelectedPaymentMethod}
-            onConfirmOrder={handleConfirmOrder}
-          />
-
-          <OrderSuccessModal
-            isOpen={isSuccessOpen}
-            onClose={() => setIsSuccessOpen(false)}
-            order={completedOrder}
-            store={storeInfo}
-          />
         </main>
       ) : activeTab === 'admin' ? (
         /* BACKEND DASHBOARD (OWNER / ADMIN) */
@@ -533,6 +691,7 @@ export default function HomePage() {
           onSelectStore={handleSelectStoreFromSuperAdmin}
           onAddMerchant={handleRegisterMerchant}
           onDeleteMerchant={handleDeleteMerchant}
+          onUpdateMerchantStatus={handleUpdateMerchantStatus}
           onBackToCustomer={() => setActiveTab('customer')}
           onGoToAuth={() => setActiveTab('auth')}
         />
@@ -656,6 +815,278 @@ export default function HomePage() {
 
         .bottom-pad {
           height: 90px;
+        }
+
+        /* Maintenance & Reassurance Screen (Brand Safe) */
+        .store-maintenance-container {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 40px 16px 80px 16px;
+          min-height: 70vh;
+        }
+
+        .store-maintenance-card {
+          background: #ffffff;
+          border-radius: var(--radius-xl);
+          border: 1px solid var(--border-color);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+          max-width: 620px;
+          width: 100%;
+          padding: 32px 28px;
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .maintenance-status-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #fff7ed;
+          border: 1px solid #ffedd5;
+          color: #c2410c;
+          padding: 6px 14px;
+          border-radius: 999px;
+          font-size: 0.78rem;
+          font-weight: 700;
+          margin-bottom: 20px;
+        }
+
+        .maintenance-store-header {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+
+        .maintenance-store-avatar {
+          width: 80px;
+          height: 80px;
+          border-radius: 20px;
+          object-fit: cover;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+          border: 2px solid white;
+        }
+
+        .maintenance-header-text {
+          text-align: center;
+        }
+
+        .maintenance-store-title {
+          font-size: 1.4rem;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 4px 0;
+          letter-spacing: -0.01em;
+        }
+
+        .maintenance-store-tagline {
+          font-size: 0.85rem;
+          color: #64748b;
+          margin: 0;
+        }
+
+        .maintenance-reassurance-box {
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: var(--radius-lg);
+          padding: 24px 20px;
+          margin-bottom: 24px;
+          text-align: center;
+          width: 100%;
+        }
+
+        .reassurance-icon-row {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: #ecfdf5;
+          color: #065f46;
+          border: 1px solid #a7f3d0;
+          padding: 4px 12px;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          margin-bottom: 12px;
+        }
+
+        .reassurance-icon {
+          font-size: 1rem;
+        }
+
+        .reassurance-headline {
+          font-size: 1.15rem;
+          font-weight: 800;
+          color: #1e293b;
+          margin: 0 0 10px 0;
+          line-height: 1.35;
+        }
+
+        .reassurance-paragraph {
+          font-size: 0.86rem;
+          color: #475569;
+          line-height: 1.55;
+          margin: 0 0 10px 0;
+        }
+
+        .reassurance-paragraph strong {
+          color: #0f172a;
+        }
+
+        .reassurance-subparagraph {
+          font-size: 0.8rem;
+          color: #64748b;
+          line-height: 1.45;
+          margin: 0;
+        }
+
+        .maintenance-contacts-card {
+          width: 100%;
+          margin-bottom: 24px;
+          text-align: left;
+        }
+
+        .contacts-title {
+          font-size: 0.85rem;
+          font-weight: 700;
+          color: #334155;
+          margin-bottom: 12px;
+          text-align: center;
+        }
+
+        .maintenance-button-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          width: 100%;
+        }
+
+        .btn-maintenance-contact {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 14px 18px;
+          border-radius: var(--radius-md);
+          text-decoration: none;
+          transition: all 0.2s ease;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .btn-maintenance-wa {
+          background: #16a34a;
+          color: white;
+          box-shadow: 0 4px 14px rgba(22, 163, 74, 0.25);
+        }
+
+        .btn-maintenance-wa:hover {
+          background: #15803d;
+          transform: translateY(-1px);
+        }
+
+        .btn-maintenance-maps {
+          background: #eff6ff;
+          border: 1.5px solid #bfdbfe;
+          color: #1d4ed8;
+        }
+
+        .btn-maintenance-maps:hover {
+          background: #dbeafe;
+          transform: translateY(-1px);
+        }
+
+        .btn-maintenance-addr {
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          color: #475569;
+        }
+
+        .contact-icon {
+          font-size: 1.5rem;
+          flex-shrink: 0;
+        }
+
+        .contact-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          text-align: left;
+        }
+
+        .contact-info strong {
+          font-size: 0.9rem;
+          font-weight: 700;
+        }
+
+        .contact-info span {
+          font-size: 0.74rem;
+          opacity: 0.88;
+        }
+
+        .maintenance-other-stores {
+          width: 100%;
+          border-top: 1px solid #f1f5f9;
+          padding-top: 20px;
+          margin-bottom: 16px;
+        }
+
+        .other-stores-heading {
+          display: block;
+          font-size: 0.78rem;
+          color: #64748b;
+          margin-bottom: 10px;
+        }
+
+        .other-stores-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          justify-content: center;
+        }
+
+        .other-store-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 14px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 999px;
+          font-size: 0.76rem;
+          font-weight: 600;
+          color: #334155;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .other-store-chip:hover {
+          background: #e2e8f0;
+          color: #0f172a;
+          transform: translateY(-1px);
+        }
+
+        .maintenance-discrete-footer {
+          margin-top: 12px;
+          font-size: 0.73rem;
+          color: #94a3b8;
+        }
+
+        .discrete-link {
+          background: none;
+          border: none;
+          color: #64748b;
+          font-size: 0.73rem;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: underline;
+          padding: 0;
+        }
+
+        .discrete-link:hover {
+          color: #0f172a;
         }
 
         .app-footer {
