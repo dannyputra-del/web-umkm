@@ -14,6 +14,16 @@ import { OrderSuccessModal } from '@/components/OrderSuccessModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { AuthView } from '@/components/AuthView';
 import { SuperAdminDashboard } from '@/components/SuperAdminDashboard';
+import {
+  getMerchantsFromSupabase,
+  getAllStoresWithProductsFromSupabase,
+  upsertMerchantToSupabase,
+  upsertStoreToSupabase,
+  updateMerchantStatusInSupabase,
+  upsertProductToSupabase,
+  deleteProductFromSupabase,
+  createOrderInSupabase,
+} from '@/lib/supabaseService';
 
 export default function HomePage() {
   // Global States
@@ -52,36 +62,71 @@ export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Hydrate from localStorage on client and read ?store= query param
+  // Hydrate from localStorage / Supabase on client and read ?store= query param
   useEffect(() => {
-    try {
-      // Check query param ?store=
-      const params = new URLSearchParams(window.location.search);
-      const storeSlugParam = params.get('store');
+    // Check query param ?store=
+    const params = new URLSearchParams(window.location.search);
+    const storeSlugParam = params.get('store');
+    const targetSlug = storeSlugParam || 'padang-jaya';
 
+    // 1. Fast hydrate from localStorage (instant UI)
+    try {
       const savedMerchants = localStorage.getItem('umkm_merchants');
-      let currentMerchants = INITIAL_MERCHANTS;
       if (savedMerchants) {
-        currentMerchants = JSON.parse(savedMerchants);
-        setMerchants(currentMerchants);
+        setMerchants(JSON.parse(savedMerchants));
       }
 
       const savedAllStores = localStorage.getItem('umkm_all_stores');
-      let currentAllStores = STORE_PRESETS;
       if (savedAllStores) {
-        currentAllStores = JSON.parse(savedAllStores);
-        setAllStores(currentAllStores);
-      }
-
-      const targetSlug = storeSlugParam || 'padang-jaya';
-      if (currentAllStores[targetSlug]) {
-        setActiveStoreSlug(targetSlug);
-        setStoreInfo(currentAllStores[targetSlug].store);
-        setProducts(currentAllStores[targetSlug].products);
+        const parsed = JSON.parse(savedAllStores);
+        setAllStores(parsed);
+        if (parsed[targetSlug]) {
+          setActiveStoreSlug(targetSlug);
+          setStoreInfo(parsed[targetSlug].store);
+          setProducts(parsed[targetSlug].products);
+        }
       }
     } catch (e) {
       console.warn('LocalStorage error:', e);
     }
+
+    // 2. Fetch realtime/cloud data from Supabase
+    async function syncCloudData() {
+      try {
+        const [cloudMerchants, cloudStores] = await Promise.all([
+          getMerchantsFromSupabase(),
+          getAllStoresWithProductsFromSupabase(),
+        ]);
+
+        if (cloudMerchants && cloudMerchants.length > 0) {
+          setMerchants(cloudMerchants);
+          try {
+            localStorage.setItem('umkm_merchants', JSON.stringify(cloudMerchants));
+          } catch (e) {
+            console.warn(e);
+          }
+        }
+
+        if (cloudStores && Object.keys(cloudStores).length > 0) {
+          setAllStores(cloudStores);
+          try {
+            localStorage.setItem('umkm_all_stores', JSON.stringify(cloudStores));
+          } catch (e) {
+            console.warn(e);
+          }
+
+          if (cloudStores[targetSlug]) {
+            setActiveStoreSlug(targetSlug);
+            setStoreInfo(cloudStores[targetSlug].store);
+            setProducts(cloudStores[targetSlug].products);
+          }
+        }
+      } catch (err) {
+        console.warn('Sync from Supabase failed, using local cache:', err);
+      }
+    }
+
+    syncCloudData();
   }, []);
 
   const handleUpdateStore = (newStore: StoreInfo) => {
@@ -101,6 +146,9 @@ export default function HomePage() {
       }
       return updated;
     });
+
+    // Sync to Supabase Cloud
+    upsertStoreToSupabase(newStore).catch((e) => console.warn(e));
   };
 
   const handleRegisterMerchant = (
@@ -140,6 +188,13 @@ export default function HomePage() {
     setProducts(sampleProducts);
     setCartItems([]);
     setActiveTab('admin'); // Directly go to seller dashboard!
+
+    // Sync to Supabase Cloud
+    upsertMerchantToSupabase(newMerchant).catch((e) => console.warn(e));
+    upsertStoreToSupabase(newStore).catch((e) => console.warn(e));
+    sampleProducts.forEach((p) => {
+      upsertProductToSupabase(p, slug).catch((e) => console.warn(e));
+    });
   };
 
   const handleLoginMerchant = (storeSlug: string) => {
@@ -212,6 +267,9 @@ export default function HomePage() {
       }
       return updated;
     });
+
+    // Sync to Supabase Cloud
+    updateMerchantStatusInSupabase(slug, newStatus, reason).catch((e) => console.warn(e));
   };
 
   // Cart State
@@ -349,29 +407,40 @@ export default function HomePage() {
     setIsPaymentOpen(false);
     setIsSuccessOpen(true);
     setCartItems([]);
+
+    // Sync to Supabase Cloud
+    createOrderInSupabase(newOrder, activeStoreSlug).catch((e) => console.warn(e));
   };
 
   // Admin Handlers
   const handleAddProduct = (newProd: Product) => {
     setProducts((prev) => [newProd, ...prev]);
+    upsertProductToSupabase(newProd, activeStoreSlug).catch((e) => console.warn(e));
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
     );
+    upsertProductToSupabase(updatedProd, activeStoreSlug).catch((e) => console.warn(e));
   };
 
   const handleDeleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
+    deleteProductFromSupabase(id).catch((e) => console.warn(e));
   };
 
   const handleToggleAvailability = (id: string) => {
-    setProducts((prev) =>
-      prev.map((p) =>
+    setProducts((prev) => {
+      const updated = prev.map((p) =>
         p.id === id ? { ...p, isAvailable: !p.isAvailable } : p
-      )
-    );
+      );
+      const target = updated.find((p) => p.id === id);
+      if (target) {
+        upsertProductToSupabase(target, activeStoreSlug).catch((e) => console.warn(e));
+      }
+      return updated;
+    });
   };
 
   // Sync products changes to localStorage
