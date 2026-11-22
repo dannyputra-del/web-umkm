@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Product, StoreInfo, Order } from '@/types';
 import { CATEGORIES } from '@/data/mockData';
 import { ImageDropzone } from './ImageDropzone';
+import { buatNamaFileUnik } from '@/lib/storageService';
 
 interface AdminDashboardProps {
   store: StoreInfo;
@@ -472,6 +473,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     aspectRatio="avatar"
                     label="Unggah Foto Profil / Logo Toko"
                     subLabel="Tarik & lepas foto logo ke sini, atau klik untuk memilih dari HP / komputer"
+                    storageFolder={store.slug}
                   />
                 </div>
 
@@ -484,6 +486,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     aspectRatio="banner"
                     label="Unggah Foto Banner Sampul Toko"
                     subLabel="Tarik & lepas foto banner ke sini (rasio lebar), otomatis dikompres ke WebP ringan"
+                    storageFolder={store.slug}
                   />
                 </div>
               </div>
@@ -939,6 +942,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   aspectRatio="product"
                   label="Unggah Foto Produk"
                   subLabel="Tarik & lepas foto produk ke sini, atau klik untuk memilih file"
+                  storageFolder={store.slug}
                 />
               </div>
 
@@ -1060,6 +1064,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   aspectRatio="product"
                   label="Ganti Foto Produk"
                   subLabel="Tarik & lepas foto baru ke sini, atau klik untuk memilih file dari HP/komputer"
+                  storageFolder={store.slug}
+                  storageFileName={
+                    editingProductId ? buatNamaFileUnik('produk', editingProductId) : undefined
+                  }
                 />
               </div>
 

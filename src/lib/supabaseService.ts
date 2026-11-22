@@ -21,6 +21,7 @@ export async function getMerchantsFromSupabase(): Promise<MerchantAccount[] | nu
       id: row.id,
       ownerName: row.owner_name,
       phone: row.phone,
+      email: row.email || undefined,
       storeSlug: row.store_slug,
       storeName: row.store_name,
       category: row.category,
@@ -42,6 +43,8 @@ export async function upsertMerchantToSupabase(merchant: MerchantAccount): Promi
       id: merchant.id,
       owner_name: merchant.ownerName,
       phone: merchant.phone,
+      // email disimpan; password JANGAN PERNAH disimpan ke Supabase.
+      email: merchant.email || null,
       store_slug: merchant.storeSlug,
       store_name: merchant.storeName,
       category: merchant.category,
@@ -117,6 +120,9 @@ export async function getAllStoresWithProductsFromSupabase(): Promise<Record<
           name: p.name,
           category: p.category,
           price: Number(p.price),
+          // Kolom baru: badge TEXT, "originalPrice" NUMERIC (camelCase, NULL -> undefined).
+          badge: p.badge || undefined,
+          originalPrice: p['originalPrice'] != null ? Number(p['originalPrice']) : undefined,
           description: p.description || '',
           image: p.image || '',
           rating: Number(p.rating) || 5.0,
@@ -196,6 +202,9 @@ export async function upsertProductToSupabase(product: Product, storeSlug: strin
       name: product.name,
       category: product.category,
       price: product.price,
+      // Kolom baru: badge TEXT, "originalPrice" NUMERIC (camelCase); undefined dikirim sebagai null.
+      badge: product.badge ?? null,
+      originalPrice: product.originalPrice ?? null,
       description: product.description,
       image: product.image,
       rating: product.rating,

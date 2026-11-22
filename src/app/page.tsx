@@ -28,12 +28,22 @@ import {
 export default function HomePage() {
   // Global States
   const [activeTab, setActiveTab] = useState<'customer' | 'admin' | 'auth' | 'superadmin'>('customer');
-  const [merchants, setMerchants] = useState<MerchantAccount[]>(INITIAL_MERCHANTS);
-  const [allStores, setAllStores] = useState<Record<string, { store: StoreInfo; products: Product[] }>>(STORE_PRESETS);
+  // State awal: mock BUKAN sumber utama. merchants/allStores/products mulai kosong
+  // dan diisi dari Supabase lewat useEffect di bawah. storeInfo tetap memakai
+  // INITIAL_STORE_INFO hanya sebagai placeholder tampilan loading, karena Header
+  // dan AdminDashboard mewajibkan prop store bertipe StoreInfo (non-null); nilai ini
+  // langsung diganti data Supabase begitu cloud berhasil dimuat, bukan sumber data.
+  const [merchants, setMerchants] = useState<MerchantAccount[]>([]);
+  const [allStores, setAllStores] = useState<Record<string, { store: StoreInfo; products: Product[] }>>({});
   const [activeStoreSlug, setActiveStoreSlug] = useState<string>('padang-jaya');
 
   const [storeInfo, setStoreInfo] = useState<StoreInfo>(INITIAL_STORE_INFO);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  // Layar tunggu: true sampai Supabase selesai dimuat atau fallback darurat
+  // diputuskan. Selama true, tampilkan layar "sedang memuat" saja, bukan
+  // placeholder mock (INITIAL_STORE_INFO) — supaya nama/menu contoh tidak
+  // sempat berkedip di layar.
+  const [isLoading, setIsLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([
     {
       id: 'ord-init-1',
@@ -62,71 +72,112 @@ export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Hydrate from localStorage / Supabase on client and read ?store= query param
+  // Urutan baca data (Supabase dulu, localStorage darurat, mock fallback terakhir):
+  // LANGKAH 1: fetch Supabase dulu. Bila cloud ada isi, pakai itu sebagai sumber benar
+  //   dan simpan ke localStorage sebagai cache.
+  // LANGKAH 2: hanya bila Supabase gagal/kosong, baca localStorage sebagai cache darurat.
+  // LANGKAH 3: bila Supabase DAN localStorage sama-sama kosong, pakai mock
+  //   INITIAL_*/STORE_PRESETS sebagai FALLBACK DARURAT (bukan sumber utama) supaya
+  //   halaman tidak kosong total.
+  // ?store= dibaca dari URL dan toko target dipilih dari data Supabase, bukan dari mock.
   useEffect(() => {
     // Check query param ?store=
     const params = new URLSearchParams(window.location.search);
     const storeSlugParam = params.get('store');
     const targetSlug = storeSlugParam || 'padang-jaya';
 
-    // 1. Fast hydrate from localStorage (instant UI)
-    try {
-      const savedMerchants = localStorage.getItem('umkm_merchants');
-      if (savedMerchants) {
-        setMerchants(JSON.parse(savedMerchants));
+    // FALLBACK DARURAT: dipakai hanya bila Supabase DAN localStorage sama-sama kosong/gagal.
+    // Mock di sini BUKAN sumber utama, hanya supaya halaman tidak kosong total.
+    const applyEmergencyMockFallback = () => {
+      setMerchants(INITIAL_MERCHANTS);
+      setAllStores(STORE_PRESETS);
+      if (STORE_PRESETS[targetSlug]) {
+        setActiveStoreSlug(targetSlug);
+        setStoreInfo(STORE_PRESETS[targetSlug].store);
+        setProducts(STORE_PRESETS[targetSlug].products);
       }
+    };
 
-      const savedAllStores = localStorage.getItem('umkm_all_stores');
-      if (savedAllStores) {
-        const parsed = JSON.parse(savedAllStores);
-        setAllStores(parsed);
-        if (parsed[targetSlug]) {
-          setActiveStoreSlug(targetSlug);
-          setStoreInfo(parsed[targetSlug].store);
-          setProducts(parsed[targetSlug].products);
-        }
-      }
-    } catch (e) {
-      console.warn('LocalStorage error:', e);
-    }
-
-    // 2. Fetch realtime/cloud data from Supabase
-    async function syncCloudData() {
+    // LANGKAH 2: baca localStorage sebagai cache darurat. Kembalikan true bila ada isi.
+    const loadFromLocalStorage = (): boolean => {
       try {
-        const [cloudMerchants, cloudStores] = await Promise.all([
+        const savedMerchants = localStorage.getItem('umkm_merchants');
+        const savedAllStores = localStorage.getItem('umkm_all_stores');
+        if (!savedMerchants && !savedAllStores) return false;
+
+        if (savedMerchants) {
+          setMerchants(JSON.parse(savedMerchants));
+        }
+        if (savedAllStores) {
+          const parsed = JSON.parse(savedAllStores);
+          setAllStores(parsed);
+          if (parsed[targetSlug]) {
+            setActiveStoreSlug(targetSlug);
+            setStoreInfo(parsed[targetSlug].store);
+            setProducts(parsed[targetSlug].products);
+          }
+        }
+        return true;
+      } catch (e) {
+        console.warn('LocalStorage error:', e);
+        return false;
+      }
+    };
+
+    // LANGKAH 1: fetch Supabase dulu sebagai sumber benar.
+    async function loadFromSupabase() {
+      try {        const [cloudMerchants, cloudStores] = await Promise.all([
           getMerchantsFromSupabase(),
           getAllStoresWithProductsFromSupabase(),
         ]);
 
-        if (cloudMerchants && cloudMerchants.length > 0) {
-          setMerchants(cloudMerchants);
-          try {
-            localStorage.setItem('umkm_merchants', JSON.stringify(cloudMerchants));
-          } catch (e) {
-            console.warn(e);
+        const hasMerchants = !!cloudMerchants && cloudMerchants.length > 0;
+        const hasStores = !!cloudStores && Object.keys(cloudStores).length > 0;
+
+        if (hasMerchants || hasStores) {
+          if (hasMerchants && cloudMerchants) {
+            setMerchants(cloudMerchants);
+            try {
+              localStorage.setItem('umkm_merchants', JSON.stringify(cloudMerchants));
+            } catch (e) {
+              console.warn(e);
+            }
           }
+
+          if (hasStores && cloudStores) {
+            setAllStores(cloudStores);
+            try {
+              localStorage.setItem('umkm_all_stores', JSON.stringify(cloudStores));
+            } catch (e) {
+              console.warn(e);
+            }
+
+            if (cloudStores[targetSlug]) {
+              setActiveStoreSlug(targetSlug);
+              setStoreInfo(cloudStores[targetSlug].store);
+              setProducts(cloudStores[targetSlug].products);
+            }
+          }
+          return;
         }
 
-        if (cloudStores && Object.keys(cloudStores).length > 0) {
-          setAllStores(cloudStores);
-          try {
-            localStorage.setItem('umkm_all_stores', JSON.stringify(cloudStores));
-          } catch (e) {
-            console.warn(e);
-          }
-
-          if (cloudStores[targetSlug]) {
-            setActiveStoreSlug(targetSlug);
-            setStoreInfo(cloudStores[targetSlug].store);
-            setProducts(cloudStores[targetSlug].products);
-          }
+        // Supabase kosong -> cache darurat localStorage, lalu fallback darurat mock.
+        if (!loadFromLocalStorage()) {
+          applyEmergencyMockFallback();
         }
       } catch (err) {
         console.warn('Sync from Supabase failed, using local cache:', err);
+        if (!loadFromLocalStorage()) {
+          applyEmergencyMockFallback();
+        }
+      } finally {
+        // Semua jalur sudah diputuskan (Supabase / localStorage / mock):
+        // layar tunggu boleh ditutup.
+        setIsLoading(false);
       }
     }
 
-    syncCloudData();
+    loadFromSupabase();
   }, []);
 
   const handleUpdateStore = (newStore: StoreInfo) => {
@@ -198,7 +249,7 @@ export default function HomePage() {
   };
 
   const handleLoginMerchant = (storeSlug: string) => {
-    const storeData = allStores[storeSlug] || STORE_PRESETS[storeSlug];
+    const storeData = allStores[storeSlug];
     if (storeData) {
       setActiveStoreSlug(storeSlug);
       setStoreInfo(storeData.store);
@@ -212,7 +263,7 @@ export default function HomePage() {
     slug: string,
     targetView: 'customer' | 'admin'
   ) => {
-    const storeData = allStores[slug] || STORE_PRESETS[slug];
+    const storeData = allStores[slug];
     if (storeData) {
       setActiveStoreSlug(slug);
       setStoreInfo(storeData.store);
@@ -461,6 +512,57 @@ export default function HomePage() {
   const currentMerchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
   const isStoreInactive = currentMerchant ? currentMerchant.status !== 'active' : false;
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // LAYAR TUNGGU: tampil selama data awal belum diputuskan. Nama toko tidak
+  // ditampilkan di sini karena storeInfo saat ini masih placeholder mock
+  // (INITIAL_STORE_INFO) dan nama asli belum diketahui.
+  if (isLoading) {
+    return (
+      <div className="app-container" style={{ backgroundColor: '#f8fafc' }}>
+        <div className="loading-screen">
+          <span className="loading-screen-icon">⏳</span>
+          <h1 className="loading-screen-title">Sedang memuat...</h1>
+          <p className="loading-screen-text">Menyiapkan etalase toko untuk Anda.</p>
+        </div>
+
+        <style jsx>{`
+          .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 80vh;
+            padding: 40px 20px;
+            text-align: center;
+          }
+
+          .loading-screen-icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            animation: loading-spin 1.5s infinite linear;
+          }
+
+          @keyframes loading-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+
+          .loading-screen-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0 0 8px 0;
+          }
+
+          .loading-screen-text {
+            font-size: 0.9rem;
+            color: #64748b;
+            margin: 0;
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div

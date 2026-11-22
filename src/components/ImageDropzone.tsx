@@ -1,7 +1,13 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { compressImage, CompressionResult } from '@/utils/imageCompressor';
+import {
+  uploadFotoTerkompres,
+  hapusFotoDariStorage,
+  adalahUrlBucketUmkmFoto,
+  buatNamaFileUnik,
+} from '@/lib/storageService';
 
 interface ImageDropzoneProps {
   value: string;
@@ -10,6 +16,10 @@ interface ImageDropzoneProps {
   label?: string;
   subLabel?: string;
   maxDimensions?: { width: number; height: number };
+  /** Folder tujuan di bucket 'umkm-foto'. Bila kosong, dipakai 'umum'. */
+  storageFolder?: string;
+  /** Nama file di Storage. Bila kosong, dibuat nama unik dari timestamp. */
+  storageFileName?: string;
 }
 
 export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
@@ -19,24 +29,15 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   label = 'Unggah Foto',
   subLabel = 'Tarik & lepas file foto ke sini, atau klik untuk memilih file',
   maxDimensions,
+  storageFolder,
+  storageFileName,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [compressionInfo, setCompressionInfo] = useState<CompressionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  
-  // Simpan foto awal / backup saat komponen dimuat agar bisa dibatalkan jika salah klik
-  const [initialBackup, setInitialBackup] = useState<string>('');
-  const [lastRemovedBackup, setLastRemovedBackup] = useState<string>('');
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    // Tangkap nilai foto pertama kali ada sebagai titik pemulihan (undo/cancel)
-    if (value && !initialBackup) {
-      setInitialBackup(value);
-    }
-  }, [value, initialBackup]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const defaultDimensions = {
     banner: { width: 1200, height: 500 },
@@ -47,26 +48,45 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   const targetDim = maxDimensions || defaultDimensions[aspectRatio];
 
   const handleProcessFile = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      setErrorMsg('Format file harus berupa gambar (JPG, PNG, WebP, dsb.)');
-      return;
-    }
-
     setErrorMsg('');
     setIsProcessing(true);
 
     try {
+      // 1. Kompres (menolak file bukan gambar, file >10 MB,
+      //    dan hasil yang masih >100 KB sesudah kualitas 0.55).
       const result = await compressImage(file, {
         maxWidth: targetDim.width,
         maxHeight: targetDim.height,
         quality: 0.85,
       });
 
+      // 2. Hapus foto lama di Storage dulu, bila value lama adalah URL bucket.
+      //    URL Unsplash/eksternal/dataUrl langsung diganti tanpa coba hapus.
+      //    Bila hapus lama GAGAL, berhenti: foto baru TIDAK diunggah/disimpaan.
+      if (value && adalahUrlBucketUmkmFoto(value)) {
+        const terhapus = await hapusFotoDariStorage(value);
+        if (!terhapus) {
+          throw new Error(
+            'Foto lama gagal dihapus dari penyimpanan. Foto baru belum disimpan, silakan coba lagi.'
+          );
+        }
+      }
+
+      // 3. Unggah hasil kompres ke Storage, lalu simpan public URL-nya.
+      const folder = storageFolder || 'umum';
+      const namaFile =
+        storageFileName || buatNamaFileUnik('foto', aspectRatio);
+      const urlBaru = await uploadFotoTerkompres(result.blob, folder, namaFile);
+
       setCompressionInfo(result);
-      onChange(result.dataUrl);
+      onChange(urlBaru);
     } catch (err: unknown) {
       console.error(err);
-      setErrorMsg('Gagal memproses gambar. Silakan coba file lain.');
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : 'Gagal memproses gambar. Silakan coba file lain.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -96,29 +116,31 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
     }
   };
 
-  const handleRemove = (e: React.MouseEvent) => {
+  const handleRemove = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (value) {
-      setLastRemovedBackup(value);
+    setErrorMsg('');
+
+    // Hapus foto di Storage dulu bila itu URL bucket.
+    // Bila hapus gagal, value TIDAK dikosongkan.
+    if (value && adalahUrlBucketUmkmFoto(value)) {
+      setIsProcessing(true);
+      try {
+        const terhapus = await hapusFotoDariStorage(value);
+        if (!terhapus) {
+          setErrorMsg('Foto gagal dihapus dari penyimpanan. Silakan coba lagi.');
+          return;
+        }
+      } finally {
+        setIsProcessing(false);
+      }
     }
+
     onChange('');
     setCompressionInfo(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
-
-  const handleRestore = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const restoreTarget = lastRemovedBackup || initialBackup;
-    if (restoreTarget) {
-      onChange(restoreTarget);
-      setCompressionInfo(null);
-      setErrorMsg('');
-    }
-  };
-
-  const canRestore = (lastRemovedBackup || initialBackup) && (!value || value !== initialBackup);
 
   return (
     <div className={`dropzone-container ${aspectRatio}`}>
@@ -143,17 +165,6 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
               >
                 🔄 Ganti Foto
               </button>
-              
-              {initialBackup && value !== initialBackup && (
-                <button
-                  type="button"
-                  className="btn-restore-img"
-                  onClick={handleRestore}
-                  title="Kembalikan ke foto semula sebelum diganti"
-                >
-                  ↩️ Batal Ganti
-                </button>
-              )}
 
               <button
                 type="button"
@@ -177,16 +188,6 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
                 </span>
               </div>
             )}
-
-            {initialBackup && value !== initialBackup && (
-              <button
-                type="button"
-                className="btn-text-undo"
-                onClick={handleRestore}
-              >
-                ✕ Batal Ganti (Kembalikan Foto Awal)
-              </button>
-            )}
           </div>
         </div>
       ) : (
@@ -202,7 +203,7 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
             {isProcessing ? (
               <div className="loading-state">
                 <span className="spinner-icon">⏳</span>
-                <span className="loading-text">Sedang mengompres & mengoptimalkan gambar...</span>
+                <span className="loading-text">Sedang mengompres & mengunggah foto...</span>
               </div>
             ) : (
               <div className="empty-content">
@@ -218,20 +219,6 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
               </div>
             )}
           </div>
-
-          {/* Tombol Undo / Batal jika sebelumnya ada foto yang tidak sengaja terhapus */}
-          {canRestore && (
-            <div className="restore-bar">
-              <span className="restore-hint">Foto sebelumnya terhapus?</span>
-              <button
-                type="button"
-                className="btn-undo-remove"
-                onClick={handleRestore}
-              >
-                ✕ Batal Hapus (Kembalikan Foto Semula)
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -403,16 +390,6 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
           cursor: pointer;
         }
 
-        .btn-restore-img {
-          background: #3b82f6;
-          color: white;
-          padding: 6px 12px;
-          border-radius: 999px;
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
-        }
-
         .btn-remove-img {
           background: #ef4444;
           color: white;
@@ -449,43 +426,6 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
 
         .text-highlight {
           color: #059669;
-        }
-
-        .btn-text-undo {
-          background: none;
-          border: none;
-          color: #3b82f6;
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
-          text-decoration: underline;
-        }
-
-        .restore-bar {
-          margin-top: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          background: #eff6ff;
-          border: 1px dashed #93c5fd;
-          padding: 8px 12px;
-          border-radius: 8px;
-          font-size: 0.78rem;
-        }
-
-        .restore-hint {
-          color: #1e40af;
-        }
-
-        .btn-undo-remove {
-          background: #2563eb;
-          color: white;
-          border: none;
-          padding: 4px 12px;
-          border-radius: 999px;
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
         }
 
         .error-hint {
