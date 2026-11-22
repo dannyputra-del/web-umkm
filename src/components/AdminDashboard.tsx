@@ -715,7 +715,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="pane-action-bar">
             <div>
               <h3>Daftar Pesanan Masuk (Realtime Feed)</h3>
-              <p>Pantau rincian pesanan pembeli, no. meja/alamat, dan status dapur.</p>
+              <p>Pantau rincian pesanan pembeli dan status dapur.</p>
             </div>
           </div>
 
@@ -753,13 +753,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <div className="customer-info-strip">
                     <strong>{ord.customer.name}</strong> • {ord.customer.phone}
-                    <div className="customer-destination">
-                      {ord.customer.orderType === 'dine_in'
-                        ? `🍽️ Makan di Tempat (Meja: ${ord.customer.tableNumber})`
-                        : ord.customer.orderType === 'takeaway'
-                        ? '🛍️ Ambil Sendiri (Takeaway)'
-                        : `🛵 Antar ke: ${ord.customer.address}`}
-                    </div>
+                    {/* Baris tipe/meja/alamat DIHAPUS (revisi 22 Nov 2026):
+                        tipe pesanan tidak lagi ada. Baris disembunyikan
+                        untuk order baru DAN lama, karena order baru
+                        tersimpan dengan default DB 'dine_in' sehingga
+                        tidak bisa dibedakan dari order lama dine-in asli
+                        — menampilkan akan menyesatkan. Data lama tetap
+                        aman di kolom table_number / address Supabase. */}
                     {ord.customer.notes && (
                       <div className="customer-notes">📝 Catatan pembeli: {ord.customer.notes}</div>
                     )}
@@ -781,7 +781,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="breakdown-row">
                       <span>Metode bayar:</span>
                       <strong>
-                        {ord.paymentMethod === 'qris'
+                        {ord.paymentMethod === 'whatsapp'
+                          ? 'WhatsApp'
+                          : ord.paymentMethod === 'qris'
                           ? 'QRIS'
                           : ord.paymentMethod === 'bank_transfer'
                           ? 'Transfer Bank'
@@ -792,14 +794,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <span>Subtotal:</span>
                       <span>{formatRupiah(ord.subtotal)}</span>
                     </div>
-                    <div className="breakdown-row">
-                      <span>Ongkir:</span>
-                      <span>{formatRupiah(ord.deliveryFee)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span>Biaya layanan:</span>
-                      <span>{formatRupiah(ord.serviceFee)}</span>
-                    </div>
+                    {(ord.deliveryFee ?? 0) > 0 && (
+                      <div className="breakdown-row">
+                        <span>Ongkir:</span>
+                        <span>{formatRupiah(ord.deliveryFee)}</span>
+                      </div>
+                    )}
+                    {(ord.serviceFee ?? 0) > 0 && (
+                      <div className="breakdown-row">
+                        <span>Biaya layanan:</span>
+                        <span>{formatRupiah(ord.serviceFee)}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="order-footer-strip">
@@ -1184,7 +1190,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="form-input"
                   />
                   <span className="input-hint">
-                    Unggah gambar QRIS asli toko Anda dan isi alamat gambarnya di sini. Pembeli akan melihat QRIS ini saat checkout.
+                    Unggah gambar QRIS asli toko Anda dan isi alamat gambarnya di sini. QRIS ini disimpan sebagai data toko.
                   </span>
                 </div>
 
@@ -2213,11 +2219,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           border-radius: 6px;
           font-size: 0.78rem;
           margin-bottom: 10px;
-        }
-
-        .customer-destination {
-          color: #64748b;
-          margin-top: 2px;
         }
 
         .order-menu-list {
