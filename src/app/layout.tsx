@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Restoran Padang Jaya Makmur | Menu & Pesan Online UMKM',
   description:
-    'Website pemesanan online instan menu khas Restoran Padang Jaya Makmur. Pilih menu favorit, masukkan keranjang, bayar via QRIS/Transfer/Tunai, dan konfirmasi langsung ke WhatsApp.',
+    'Website pemesanan online instan menu khas Restoran Padang Jaya Makmur. Pilih menu favorit, masukkan keranjang, lalu pesan via WhatsApp dan konfirmasi langsung di chat.',
 };
 
 export default function RootLayout({
