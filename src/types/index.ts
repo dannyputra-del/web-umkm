@@ -9,6 +9,7 @@ export interface Product {
   badge?: string;
   rating: number;
   salesCount: number;
+  stock?: number;
   isAvailable: boolean;
 }
 
@@ -34,7 +35,7 @@ export interface CustomerDetails {
 export interface Order {
   id: string;
   orderNumber: string;
-  createdAt: string;
+  createdAt: string; // HARUS ISO lengkap, mis. new Date().toISOString() — pembuat order di page.tsx wajib kirim ISO.
   items: CartItem[];
   customer: CustomerDetails;
   paymentMethod: PaymentMethod;
@@ -42,7 +43,7 @@ export interface Order {
   deliveryFee: number;
   serviceFee: number;
   total: number;
-  status: 'pending' | 'cooking' | 'ready' | 'completed';
+  status: 'pending' | 'cooking' | 'ready' | 'completed' | 'cancelled' | 'rejected';
 }
 
 export interface StoreInfo {
@@ -59,6 +60,10 @@ export interface StoreInfo {
   banner: string;
   backgroundColor?: string;
   googleMapsUrl?: string;
+  deliveryFee?: number;
+  serviceFee?: number;
+  qrisImageUrl?: string;
+  bankAccounts?: { bank: string; account: string; holder: string }[];
   slug: string;
   ownerName?: string;
 }

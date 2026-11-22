@@ -20,8 +20,21 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
 
+  // Nomor telepon -> href tel:+62... (tampil tetap format asli).
+  const phoneDigits = (store.phone || '').replace(/\D/g, '');
+  const phoneTelHref = phoneDigits
+    ? phoneDigits.startsWith('0')
+      ? `tel:+62${phoneDigits.slice(1)}`
+      : phoneDigits.startsWith('62')
+        ? `tel:+${phoneDigits}`
+        : `tel:+62${phoneDigits}`
+    : undefined;
+
   return (
-    <header className="store-header">
+    <header
+      className="store-header"
+      style={{ backgroundColor: store.backgroundColor || '#f8fafc' }}
+    >
       {/* Admin / Customer View Switcher Bar */}
       <div className="view-switcher-bar">
         <span className="mode-indicator">
@@ -99,6 +112,22 @@ export const Header: React.FC<HeaderProps> = ({
 
           <h1 className="store-name-title">{store.name}</h1>
           <p className="store-tagline-text">{store.tagline}</p>
+          {store.description ? (
+            <p className="store-description-text">{store.description}</p>
+          ) : null}
+          {store.category ? (
+            <span className="store-category-label">{store.category}</span>
+          ) : null}
+          {store.ownerName ? (
+            <p className="store-owner-text">Pemilik: {store.ownerName}</p>
+          ) : null}
+          {store.phone && phoneTelHref ? (
+            <p className="store-phone-row">
+              <a className="store-phone-link" href={phoneTelHref}>
+                📞 {store.phone}
+              </a>
+            </p>
+          ) : null}
           <div className="store-address-row">
             <span className="store-address-text">📍 {store.address}</span>
             <a
@@ -147,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
       <style jsx>{`
         .store-header {
           position: relative;
-          background: #ffffff;
+          background: #f8fafc;
           border-bottom: 1px solid var(--border-color);
         }
 
@@ -374,6 +403,48 @@ export const Header: React.FC<HeaderProps> = ({
           color: #64748b;
           max-width: 480px;
           margin-bottom: 6px;
+        }
+
+        .store-description-text {
+          font-size: 0.85rem;
+          color: #475569;
+          line-height: 1.55;
+          max-width: 520px;
+          margin: 0 auto 8px auto;
+        }
+
+        .store-category-label {
+          display: inline-block;
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: #9a3412;
+          background: #fff7ed;
+          border: 1px solid #ffedd5;
+          padding: 3px 10px;
+          border-radius: 999px;
+          margin-bottom: 8px;
+        }
+
+        .store-owner-text {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: #334155;
+          margin: 0 0 6px 0;
+        }
+
+        .store-phone-row {
+          margin: 0 0 10px 0;
+        }
+
+        .store-phone-link {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: #2563eb;
+          text-decoration: none;
+        }
+
+        .store-phone-link:hover {
+          text-decoration: underline;
         }
 
         .store-address-row {

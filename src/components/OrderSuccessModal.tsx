@@ -22,6 +22,20 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
     return 'Rp ' + val.toLocaleString('id-ID');
   };
 
+  // Waktu order lengkap (tanggal + jam, format Indonesia) dari ISO;
+  // bila bukan ISO valid, tampilkan apa adanya.
+  const formatOrderTime = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   // Generate WhatsApp Order Message
   const generateWhatsAppMessage = () => {
     const itemLines = order.items
@@ -47,23 +61,27 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
         ? `Makan di Tempat (Meja: ${order.customer.tableNumber || '-'})`
         : order.customer.orderType === 'takeaway'
         ? `Ambil Sendiri / Pickup (Pesan Kurir Sendiri)\n📍 Titik Pickup: ${store.address}\n🗺️ Link Maps: ${mapsUrl}`
-        : `Pesan Antar (Alamat: ${order.customer.address || '-'} • Mohon konfirmasi ongkir)`;
+        : `Pesan Antar (Alamat: ${order.customer.address || '-'})`;
 
     const message = `Halo ${store.name}, saya baru saja memesan via Website Menu Online! 🍽️
 
 *NO PESANAN: ${order.orderNumber}*
+*Waktu Pesanan:* ${formatOrderTime(order.createdAt)}
 ------------------------------
 *Nama:* ${order.customer.name}
 *No. WhatsApp:* ${order.customer.phone}
 *Tipe:* ${orderTypeText}
-${order.customer.notes ? `*Catatan Dapur:* ${order.customer.notes}\n` : ''}
+${order.customer.notes ? `*Catatan Pembeli:* ${order.customer.notes}\n` : ''}
 *RINCIAN MENU:*
 ${itemLines}
 
 ------------------------------
+*Subtotal:* ${formatRupiah(order.subtotal)}
+*Biaya Layanan:* ${formatRupiah(order.serviceFee)}
+*Ongkir:* ${order.deliveryFee > 0 ? formatRupiah(order.deliveryFee) : 'Tanpa ongkir (Rp 0)'}
 *Total Pembayaran:* ${formatRupiah(order.total)}
 *Metode Bayar:* ${paymentText}
-*Status:* Menunggu Konfirmasi Dapur
+*Status:* Menunggu konfirmasi via WhatsApp
 
 Mohon segera diproses ya, terima kasih banyak!`;
 
@@ -84,7 +102,7 @@ Mohon segera diproses ya, terima kasih banyak!`;
           </div>
           <h2 className="success-title">Terima Kasih Sudah Memesan!</h2>
           <p className="success-subtitle">
-            Pesanan Anda telah diterima oleh kasir <strong>{store.name}</strong>.
+            Pesanan Anda tercatat. Silakan kirim konfirmasi via WhatsApp agar kasir <strong>{store.name}</strong> memprosesnya.
           </p>
         </div>
 
@@ -99,6 +117,10 @@ Mohon segera diproses ya, terima kasih banyak!`;
             <div className="ticket-divider" />
 
             <div className="ticket-details">
+              <div className="detail-row">
+                <span className="detail-lbl">Waktu Pesanan:</span>
+                <span className="detail-val">{formatOrderTime(order.createdAt)}</span>
+              </div>
               <div className="detail-row">
                 <span className="detail-lbl">Pemesan:</span>
                 <span className="detail-val">{order.customer.name} ({order.customer.phone})</span>
@@ -123,6 +145,12 @@ Mohon segera diproses ya, terima kasih banyak!`;
                     : 'Tunai di Kasir'}
                 </span>
               </div>
+              {order.customer.notes && (
+                <div className="detail-row">
+                  <span className="detail-lbl">Catatan Pembeli:</span>
+                  <span className="detail-val">{order.customer.notes}</span>
+                </div>
+              )}
             </div>
 
             {/* Item list */}
@@ -132,12 +160,37 @@ Mohon segera diproses ya, terima kasih banyak!`;
                 <div key={it.product.id} className="ticket-item-row">
                   <span className="item-qty-name">
                     <strong>{it.quantity}x</strong> {it.product.name}
+                    {it.notes && (
+                      <span className="item-note-line">Catatan: {it.notes}</span>
+                    )}
                   </span>
                   <span className="item-sub-price">
                     {formatRupiah(it.product.price * it.quantity)}
                   </span>
                 </div>
               ))}
+            </div>
+
+            <div className="ticket-divider" />
+
+            {/* Rincian biaya lengkap */}
+            <div className="ticket-breakdown">
+              <div className="ticket-break-row">
+                <span>Subtotal</span>
+                <span>{formatRupiah(order.subtotal)}</span>
+              </div>
+              <div className="ticket-break-row">
+                <span>Biaya layanan &amp; pengemasan</span>
+                <span>{formatRupiah(order.serviceFee)}</span>
+              </div>
+              <div className="ticket-break-row">
+                <span>Ongkir</span>
+                <span>
+                  {order.deliveryFee > 0
+                    ? formatRupiah(order.deliveryFee)
+                    : 'Tanpa ongkir (Rp 0)'}
+                </span>
+              </div>
             </div>
 
             <div className="ticket-divider" />
@@ -171,8 +224,8 @@ Mohon segera diproses ya, terima kasih banyak!`;
 
           {/* Quick Notice */}
           <div className="kitchen-status-pill">
-            <span className="kitchen-pulse">👨‍🍳</span>
-            <span>Status: <strong>Sedang Diteruskan ke Dapur Restoran</strong></span>
+            <span className="kitchen-pulse">💬</span>
+            <span>Status: <strong>Menunggu konfirmasi via WhatsApp</strong></span>
           </div>
 
           {/* Actions */}
@@ -335,6 +388,33 @@ Mohon segera diproses ya, terima kasih banyak!`;
 
         .item-sub-price {
           font-weight: 700;
+        }
+
+        .item-note-line {
+          display: block;
+          font-size: 0.72rem;
+          color: #64748b;
+          font-weight: 400;
+          margin-top: 2px;
+        }
+
+        .ticket-breakdown {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 4px;
+        }
+
+        .ticket-break-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.8rem;
+          color: #64748b;
+        }
+
+        .ticket-break-row span:last-child {
+          font-weight: 700;
+          color: #334155;
         }
 
         .ticket-total-row {

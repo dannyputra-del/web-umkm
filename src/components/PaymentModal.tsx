@@ -7,10 +7,16 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onBackToCheckout: () => void;
-  totalAmount: number;
+  totalAmount?: number;
+  amount?: number;
+  store?: {
+    name: string;
+    qrisImageUrl?: string;
+    bankAccounts?: { bank: string; account: string; holder: string }[];
+  };
   selectedPayment: PaymentMethod;
   onSelectPayment: (method: PaymentMethod) => void;
-  onConfirmOrder: () => void;
+  onConfirmOrder: (proof?: { payerName?: string; paidAt?: string }) => void;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -18,13 +24,43 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   onBackToCheckout,
   totalAmount,
+  amount,
+  store,
   selectedPayment,
   onSelectPayment,
   onConfirmOrder,
 }) => {
+  const [copiedBank, setCopiedBank] = useState<string | null>(null);
+  const [paidConfirmed, setPaidConfirmed] = useState(false);
+  const [senderName, setSenderName] = useState('');
+  const [paidTime, setPaidTime] = useState('');
+
   if (!isOpen) return null;
 
-  const [copiedBank, setCopiedBank] = useState<string | null>(null);
+  const displayAmount = amount ?? totalAmount ?? 0;
+  const needsPaymentProof =
+    selectedPayment === 'qris' || selectedPayment === 'bank_transfer';
+  // Order baru dibuat hanya sesudah verifikasi: metode dipilih, dan untuk
+  // QRIS/transfer pembeli wajib centang "Saya sudah membayar Rp X".
+  const canConfirm =
+    !!selectedPayment && (!needsPaymentProof || paidConfirmed);
+
+  const handleSelectPayment = (method: PaymentMethod) => {
+    onSelectPayment(method);
+    setPaidConfirmed(false);
+    setSenderName('');
+    setPaidTime('');
+  };
+
+  const handleConfirmOrder = () => {
+    // Tunai: tidak ada bukti bayar, kirim tanpa argumen.
+    // QRIS/transfer: teruskan nama pengirim + jam bayar (bila diisi).
+    if (needsPaymentProof) {
+      onConfirmOrder({ payerName: senderName || undefined, paidAt: paidTime || undefined });
+    } else {
+      onConfirmOrder();
+    }
+  };
 
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
@@ -61,7 +97,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           {/* Bill Total Banner */}
           <div className="payment-total-banner">
             <span className="banner-sublabel">Total Tagihan Yang Harus Dibayar:</span>
-            <span className="banner-amount">{formatRupiah(totalAmount)}</span>
+            <span className="banner-amount">{formatRupiah(displayAmount)}</span>
           </div>
 
           {/* Payment Method Selector */}
@@ -69,7 +105,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Method 1: QRIS */}
             <div
               className={`payment-option-card ${selectedPayment === 'qris' ? 'active' : ''}`}
-              onClick={() => onSelectPayment('qris')}
+              onClick={() => handleSelectPayment('qris')}
             >
               <div className="option-header-row">
                 <div className="radio-label-box">
@@ -82,63 +118,30 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 Bisa bayar dari BCA, Mandiri, BRI, BNI, GoPay, OVO, ShopeePay, DANA & LinkAja.
               </p>
 
-              {/* Expandable QRIS preview if active */}
+              {/* Tampilkan QRIS ASLI toko bila ada; bila tidak ada, jangan tampilkan QRIS sama sekali */}
               {selectedPayment === 'qris' && (
                 <div className="qris-interactive-box">
-                  <div className="qris-card-inner">
-                    <div className="qris-top-banner">
-                      <span className="qris-logo-text">QRIS</span>
-                      <span className="gpn-logo-text">GPN</span>
-                    </div>
-                    {/* Visual QR Code Generator with SVG */}
-                    <div className="qr-image-container">
-                      <svg
-                        viewBox="0 0 100 100"
-                        className="mock-qr-svg"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        {/* Outer QR Corner 1 */}
-                        <rect x="5" y="5" width="26" height="26" fill="#0f172a" rx="4" />
-                        <rect x="9" y="9" width="18" height="18" fill="#ffffff" rx="2" />
-                        <rect x="13" y="13" width="10" height="10" fill="#c2410c" rx="2" />
-
-                        {/* Outer QR Corner 2 */}
-                        <rect x="69" y="5" width="26" height="26" fill="#0f172a" rx="4" />
-                        <rect x="73" y="9" width="18" height="18" fill="#ffffff" rx="2" />
-                        <rect x="77" y="13" width="10" height="10" fill="#c2410c" rx="2" />
-
-                        {/* Outer QR Corner 3 */}
-                        <rect x="5" y="69" width="26" height="26" fill="#0f172a" rx="4" />
-                        <rect x="9" y="73" width="18" height="18" fill="#ffffff" rx="2" />
-                        <rect x="13" y="77" width="10" height="10" fill="#c2410c" rx="2" />
-
-                        {/* Random Patterns */}
-                        <rect x="36" y="8" width="6" height="6" fill="#0f172a" />
-                        <rect x="46" y="8" width="8" height="6" fill="#0f172a" />
-                        <rect x="58" y="12" width="6" height="6" fill="#0f172a" />
-                        <rect x="36" y="22" width="10" height="6" fill="#0f172a" />
-                        <rect x="52" y="24" width="8" height="8" fill="#0f172a" />
-                        <rect x="8" y="38" width="12" height="6" fill="#0f172a" />
-                        <rect x="25" y="36" width="6" height="8" fill="#0f172a" />
-                        <rect x="38" y="38" width="24" height="24" fill="#0f172a" rx="3" />
-                        <rect x="44" y="44" width="12" height="12" fill="#ffffff" rx="2" />
-                        <circle cx="50" cy="50" r="3" fill="#c2410c" />
-                        <rect x="70" y="38" width="10" height="6" fill="#0f172a" />
-                        <rect x="86" y="42" width="8" height="10" fill="#0f172a" />
-                        <rect x="38" y="68" width="8" height="8" fill="#0f172a" />
-                        <rect x="50" y="72" width="12" height="6" fill="#0f172a" />
-                        <rect x="70" y="70" width="8" height="14" fill="#0f172a" />
-                        <rect x="82" y="72" width="12" height="8" fill="#0f172a" />
-                        <rect x="74" y="88" width="16" height="6" fill="#0f172a" />
-                      </svg>
-                    </div>
-                    <span className="qris-merchant-label">
-                      NMID: ID10293847592 • RESTO PADANG JAYA MAKMUR
-                    </span>
-                  </div>
-                  <p className="qris-scan-instruction">
-                    Tangkapan layar (screenshot) kode QR di atas atau scan langsung menggunakan kamera aplikasi perbankan Anda.
-                  </p>
+                  {store?.qrisImageUrl ? (
+                    <>
+                      <div className="qris-card-inner">
+                        <div className="qris-top-banner">
+                          <span className="qris-logo-text">QRIS</span>
+                          <span className="gpn-logo-text">GPN</span>
+                        </div>
+                        <img
+                          src={store.qrisImageUrl}
+                          alt={`Kode QRIS ${store.name}`}
+                          className="qris-real-img"
+                        />
+                        <span className="qris-merchant-label">{store.name}</span>
+                      </div>
+                      <p className="qris-scan-instruction">
+                        Scan kode QR di atas menggunakan aplikasi pembayaran Anda, lalu centang konfirmasi pembayaran di bawah.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="qris-empty-note">Toko belum memasang QRIS.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -146,7 +149,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Method 2: Transfer Bank */}
             <div
               className={`payment-option-card ${selectedPayment === 'bank_transfer' ? 'active' : ''}`}
-              onClick={() => onSelectPayment('bank_transfer')}
+              onClick={() => handleSelectPayment('bank_transfer')}
             >
               <div className="option-header-row">
                 <div className="radio-label-box">
@@ -155,50 +158,42 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               </div>
               <p className="method-desc">
-                Transfer ke rekening resmi restoran dan kirimkan struk konfirmasi.
+                Transfer ke rekening resmi toko dan kirimkan struk konfirmasi.
               </p>
 
+              {/* Daftar rekening ASLI toko bila ada; bila kosong, jangan karang nomor apa pun */}
               {selectedPayment === 'bank_transfer' && (
                 <div className="bank-account-list">
-                  <div className="bank-card">
-                    <div className="bank-logo-title">
-                      <span className="bank-badge bca">BCA</span>
-                      <span className="bank-holder">a.n Jaya Makmur Resto</span>
-                    </div>
-                    <div className="bank-number-row">
-                      <span className="bank-acc-num">8281-9288-1920</span>
-                      <button
-                        type="button"
-                        className="btn-copy-acc"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCopy('828192881920', 'BCA');
-                        }}
-                      >
-                        {copiedBank === 'BCA' ? '✓ Tersalin' : 'Salin'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bank-card">
-                    <div className="bank-logo-title">
-                      <span className="bank-badge mandiri">MANDIRI</span>
-                      <span className="bank-holder">a.n Jaya Makmur Resto</span>
-                    </div>
-                    <div className="bank-number-row">
-                      <span className="bank-acc-num">1370-0198-2839-1</span>
-                      <button
-                        type="button"
-                        className="btn-copy-acc"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCopy('1370019828391', 'Mandiri');
-                        }}
-                      >
-                        {copiedBank === 'Mandiri' ? '✓ Tersalin' : 'Salin'}
-                      </button>
-                    </div>
-                  </div>
+                  {store?.bankAccounts && store.bankAccounts.length > 0 ? (
+                    store.bankAccounts.map((acc) => {
+                      const accKey = `${acc.bank}-${acc.account}`;
+                      return (
+                        <div className="bank-card" key={accKey}>
+                          <div className="bank-logo-title">
+                            <span className="bank-badge">{acc.bank}</span>
+                            <span className="bank-holder">a.n {acc.holder}</span>
+                          </div>
+                          <div className="bank-number-row">
+                            <span className="bank-acc-num">{acc.account}</span>
+                            <button
+                              type="button"
+                              className="btn-copy-acc"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopy(acc.account.replace(/[\s-]/g, ''), accKey);
+                              }}
+                            >
+                              {copiedBank === accKey ? '✓ Tersalin' : 'Salin'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="bank-empty-note">
+                      Toko belum mengisi rekening — bayar tunai atau konfirmasi via WA.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -206,7 +201,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Method 3: Tunai */}
             <div
               className={`payment-option-card ${selectedPayment === 'cash' ? 'active' : ''}`}
-              onClick={() => onSelectPayment('cash')}
+              onClick={() => handleSelectPayment('cash')}
             >
               <div className="option-header-row">
                 <div className="radio-label-box">
@@ -216,9 +211,52 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <span className="badge badge-gold">Bayar di Tempat</span>
               </div>
               <p className="method-desc">
-                Bayar tunai di meja makan, kasir restoran, atau saat kurir mengantarkan pesanan Anda.
+                Bayar tunai di meja makan, kasir toko, atau saat kurir mengantarkan pesanan Anda.
               </p>
+              {selectedPayment === 'cash' && (
+                <p className="cash-note">Bayar tunai saat pesanan diterima.</p>
+              )}
             </div>
+          </div>
+
+          {/* Verifikasi pembayaran SEBELUM order dibuat */}
+          <div className="payment-verify-box">
+            {!selectedPayment && (
+              <span className="verify-hint">Pilih metode pembayaran di atas dulu.</span>
+            )}
+            {needsPaymentProof && (
+              <>
+                <label className="verify-check-row">
+                  <input
+                    type="checkbox"
+                    checked={paidConfirmed}
+                    onChange={(e) => setPaidConfirmed(e.target.checked)}
+                  />
+                  <span>Saya sudah membayar {formatRupiah(displayAmount)}</span>
+                </label>
+                <div className="verify-proof-row">
+                  <input
+                    type="text"
+                    placeholder="Nama pengirim (opsional)"
+                    value={senderName}
+                    onChange={(e) => setSenderName(e.target.value)}
+                    className="verify-proof-input"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Jam bayar, cth: 10:15 (opsional)"
+                    value={paidTime}
+                    onChange={(e) => setPaidTime(e.target.value)}
+                    className="verify-proof-input"
+                  />
+                </div>
+              </>
+            )}
+            {selectedPayment === 'cash' && (
+              <span className="verify-hint">
+                Bayar tunai saat pesanan diterima — tidak perlu bukti bayar.
+              </span>
+            )}
           </div>
 
           {/* Confirm Button */}
@@ -226,13 +264,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <button
               type="button"
               className="btn-confirm-final"
-              onClick={onConfirmOrder}
+              onClick={handleConfirmOrder}
+              disabled={!canConfirm}
             >
-              <span>Konfirmasi & Selesaikan Pesanan</span>
+              <span>Konfirmasi Pembayaran &amp; Buat Pesanan</span>
               <span>✅</span>
             </button>
             <span className="secure-badge">
-              🔒 Transaksi Langsung Aman & Terhubung ke WhatsApp Resto
+              🔒 Transaksi Langsung Aman & Terhubung ke WhatsApp Toko
             </span>
           </div>
         </div>
@@ -396,15 +435,35 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           color: #2563eb;
         }
 
-        .qr-image-container {
+        .qris-real-img {
           width: 170px;
           height: 170px;
+          object-fit: contain;
           padding: 6px;
         }
 
-        .mock-qr-svg {
-          width: 100%;
-          height: 100%;
+        .qris-empty-note,
+        .bank-empty-note {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: #92400e;
+          text-align: center;
+          padding: 10px 12px;
+          background: #fffbeb;
+          border: 1px dashed #fcd34d;
+          border-radius: var(--radius-sm);
+        }
+
+        .cash-note {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #065f46;
+          margin-left: 28px;
+          margin-top: 8px;
+          background: #ecfdf5;
+          border: 1px solid #a7f3d0;
+          border-radius: var(--radius-sm);
+          padding: 8px 10px;
         }
 
         .qris-merchant-label {
@@ -451,14 +510,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           padding: 2px 6px;
           border-radius: 4px;
           color: white;
-        }
-
-        .bank-badge.bca {
-          background: #0060af;
-        }
-
-        .bank-badge.mandiri {
-          background: #003087;
+          background: #334155;
         }
 
         .bank-holder {
@@ -493,6 +545,61 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           background: #f1f5f9;
         }
 
+        .payment-verify-box {
+          background: #f8fafc;
+          border: 1px solid var(--border-strong);
+          border-radius: var(--radius-md);
+          padding: 12px 14px;
+          margin-bottom: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .verify-check-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 0.88rem;
+          font-weight: 700;
+          color: #0f172a;
+          cursor: pointer;
+        }
+
+        .verify-check-row input {
+          width: 18px;
+          height: 18px;
+          accent-color: var(--accent-green);
+        }
+
+        .verify-proof-row {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .verify-proof-input {
+          flex: 1;
+          min-width: 140px;
+          border: 1px solid #cbd5e1;
+          border-radius: var(--radius-sm);
+          padding: 8px 10px;
+          font-size: 0.78rem;
+          color: #334155;
+          outline: none;
+          background: #ffffff;
+        }
+
+        .verify-proof-input:focus {
+          border-color: var(--primary);
+        }
+
+        .verify-hint {
+          font-size: 0.8rem;
+          color: #64748b;
+          text-align: center;
+        }
+
         .payment-confirm-box {
           display: flex;
           flex-direction: column;
@@ -517,6 +624,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
         .btn-confirm-final:hover {
           background: var(--accent-green-hover);
+        }
+
+        .btn-confirm-final:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+
+        .btn-confirm-final:disabled:hover {
+          background: var(--accent-green);
         }
 
         .secure-badge {

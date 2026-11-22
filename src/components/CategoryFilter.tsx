@@ -2,12 +2,35 @@
 
 import React from 'react';
 
+export type SortOption =
+  | 'best_selling'
+  | 'price_asc'
+  | 'price_desc'
+  | 'rating_desc'
+  | 'name_asc';
+
+export type PriceRangeOption =
+  | 'all'
+  | 'under_10k'
+  | '10k_25k'
+  | '25k_50k'
+  | 'over_50k';
+
+export type AvailabilityOption = 'all' | 'available' | 'sold_out';
+
 interface CategoryFilterProps {
   categories: string[];
   activeCategory: string;
   onSelectCategory: (category: string) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  sortBy?: SortOption;
+  onSortChange?: (sort: SortOption) => void;
+  priceRange?: PriceRangeOption;
+  onPriceRangeChange?: (range: PriceRangeOption) => void;
+  availabilityFilter?: AvailabilityOption;
+  onAvailabilityChange?: (filter: AvailabilityOption) => void;
+  searchPlaceholder?: string;
 }
 
 export const CategoryFilter: React.FC<CategoryFilterProps> = ({
@@ -16,6 +39,13 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   onSelectCategory,
   searchQuery,
   onSearchChange,
+  sortBy = 'best_selling',
+  onSortChange,
+  priceRange = 'all',
+  onPriceRangeChange,
+  availabilityFilter = 'all',
+  onAvailabilityChange,
+  searchPlaceholder = 'Cari menu...',
 }) => {
   return (
     <div className="filter-wrapper">
@@ -24,7 +54,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
         <span className="search-icon">🔍</span>
         <input
           type="text"
-          placeholder="Cari menu favoritmu (cth: Rendang, Ayam Pop, Es Teh)..."
+          placeholder={searchPlaceholder}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className="search-input"
@@ -37,6 +67,57 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
             ✕
           </button>
         )}
+      </div>
+
+      {/* Sortir & Filter */}
+      <div className="controls-row">
+        <label className="control-field">
+          <span className="control-label">Urutkan</span>
+          <select
+            className="control-select"
+            value={sortBy}
+            onChange={(e) => onSortChange?.(e.target.value as SortOption)}
+            aria-label="Urutkan produk"
+          >
+            <option value="best_selling">Paling Laris</option>
+            <option value="price_asc">Harga Termurah</option>
+            <option value="price_desc">Harga Termahal</option>
+            <option value="rating_desc">Rating Tertinggi</option>
+            <option value="name_asc">Nama A-Z</option>
+          </select>
+        </label>
+
+        <label className="control-field">
+          <span className="control-label">Harga</span>
+          <select
+            className="control-select"
+            value={priceRange}
+            onChange={(e) => onPriceRangeChange?.(e.target.value as PriceRangeOption)}
+            aria-label="Filter harga"
+          >
+            <option value="all">Semua Harga</option>
+            <option value="under_10k">&lt; Rp10.000</option>
+            <option value="10k_25k">Rp10.000 - Rp25.000</option>
+            <option value="25k_50k">Rp25.000 - Rp50.000</option>
+            <option value="over_50k">&gt; Rp50.000</option>
+          </select>
+        </label>
+
+        <label className="control-field">
+          <span className="control-label">Ketersediaan</span>
+          <select
+            className="control-select"
+            value={availabilityFilter}
+            onChange={(e) =>
+              onAvailabilityChange?.(e.target.value as AvailabilityOption)
+            }
+            aria-label="Filter ketersediaan"
+          >
+            <option value="all">Semua</option>
+            <option value="available">Tersedia Saja</option>
+            <option value="sold_out">Habis Saja</option>
+          </select>
+        </label>
       </div>
 
       {/* Horizontal Scrollable Categories */}
@@ -145,6 +226,49 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
           background: var(--primary);
           color: #ffffff;
           box-shadow: 0 4px 12px rgba(194, 65, 12, 0.3);
+        }
+
+        .controls-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .control-field {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          flex: 1 1 140px;
+          min-width: 0;
+        }
+
+        .control-label {
+          font-size: 0.7rem;
+          font-weight: 700;
+          color: #64748b;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .control-select {
+          width: 100%;
+          border: 1.5px solid var(--border-strong);
+          border-radius: 10px;
+          background: #f8fafc;
+          padding: 8px 10px;
+          font-family: inherit;
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: var(--text-main);
+          outline: none;
+          cursor: pointer;
+        }
+
+        .control-select:focus {
+          border-color: var(--primary);
+          background: #ffffff;
+          box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.12);
         }
       `}</style>
     </div>

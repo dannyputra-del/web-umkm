@@ -2,10 +2,11 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo, MerchantAccount } from '@/types';
-import { INITIAL_STORE_INFO, INITIAL_PRODUCTS, CATEGORIES, INITIAL_MERCHANTS, STORE_PRESETS } from '@/data/mockData';
+import { INITIAL_STORE_INFO, INITIAL_MERCHANTS, STORE_PRESETS } from '@/data/mockData';
 import { Header } from '@/components/Header';
-import { CategoryFilter } from '@/components/CategoryFilter';
+import { CategoryFilter, SortOption, PriceRangeOption, AvailabilityOption } from '@/components/CategoryFilter';
 import { ProductCard } from '@/components/ProductCard';
+import { ProductDetailModal } from '@/components/ProductDetailModal';
 import { CartFloatingBar } from '@/components/CartFloatingBar';
 import { CartDrawer } from '@/components/CartDrawer';
 import { CheckoutModal } from '@/components/CheckoutModal';
@@ -17,11 +18,12 @@ import { SuperAdminDashboard } from '@/components/SuperAdminDashboard';
 import {
   getMerchantsFromSupabase,
   getAllStoresWithProductsFromSupabase,
+  getOrdersFromSupabase,
+  updateOrderStatusInSupabase,
   upsertMerchantToSupabase,
   upsertStoreToSupabase,
   updateMerchantStatusInSupabase,
   upsertProductToSupabase,
-  deleteProductFromSupabase,
   createOrderInSupabase,
 } from '@/lib/supabaseService';
 
@@ -44,33 +46,20 @@ export default function HomePage() {
   // placeholder mock (INITIAL_STORE_INFO) — supaya nama/menu contoh tidak
   // sempat berkedip di layar.
   const [isLoading, setIsLoading] = useState(true);
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: 'ord-init-1',
-      orderNumber: '#JM-9401',
-      createdAt: '12:45 WIB',
-      items: [
-        { product: INITIAL_PRODUCTS[0], quantity: 2, notes: 'Bumbu rendang kental' },
-        { product: INITIAL_PRODUCTS[8], quantity: 2 },
-      ],
-      customer: {
-        name: 'Pak Rahmat',
-        phone: '081233445566',
-        orderType: 'dine_in',
-        tableNumber: 'Meja 04',
-      },
-      paymentMethod: 'qris',
-      subtotal: 64000,
-      deliveryFee: 0,
-      serviceFee: 2000,
-      total: 66000,
-      status: 'cooking',
-    },
-  ]);
+  // Seed ord-init-1 dihapus (E7): orders awal kosong, diisi dari Supabase /
+  // localStorage lewat loadOrders di useEffect di bawah.
+  const [orders, setOrders] = useState<Order[]>([]);
 
   // Filtering & Search
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<SortOption>('best_selling');
+  const [priceRange, setPriceRange] = useState<PriceRangeOption>('all');
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityOption>('all');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // Slug ?store= yang diminta URL (null bila tidak ada param). Dipakai untuk
+  // layar "Toko tidak ditemukan" bila slug tidak ada di allStores.
+  const [requestedStoreSlug, setRequestedStoreSlug] = useState<string | null>(null);
 
   // Urutan baca data (Supabase dulu, localStorage darurat, mock fallback terakhir):
   // LANGKAH 1: fetch Supabase dulu. Bila cloud ada isi, pakai itu sebagai sumber benar
@@ -84,6 +73,7 @@ export default function HomePage() {
     // Check query param ?store=
     const params = new URLSearchParams(window.location.search);
     const storeSlugParam = params.get('store');
+    setRequestedStoreSlug(storeSlugParam);
     const targetSlug = storeSlugParam || 'padang-jaya';
 
     // FALLBACK DARURAT: dipakai hanya bila Supabase DAN localStorage sama-sama kosong/gagal.
@@ -124,8 +114,37 @@ export default function HomePage() {
       }
     };
 
+    // LANGKAH 1b: hidrasi orders — Supabase diutamakan, localStorage
+    // umkm_orders melengkapi id yang belum ada di cloud; seed ord-init-1
+    // selalu disaring keluar.
+    const loadOrders = async () => {
+      let localOrders: Order[] = [];
+      try {
+        const raw = localStorage.getItem('umkm_orders');
+        if (raw) localOrders = JSON.parse(raw) as Order[];
+      } catch (e) {
+        console.warn('LocalStorage orders error:', e);
+      }
+      localOrders = localOrders.filter((o) => o.id !== 'ord-init-1');
+      let cloudOrders: Order[] | null = null;
+      try {
+        cloudOrders = await getOrdersFromSupabase(targetSlug);
+      } catch (e) {
+        console.warn('Load orders from Supabase failed:', e);
+      }
+      const merged = cloudOrders
+        ? [
+            ...cloudOrders,
+            ...localOrders.filter((lo) => !cloudOrders!.some((co) => co.id === lo.id)),
+          ]
+        : localOrders;
+      setOrders(merged.filter((o) => o.id !== 'ord-init-1'));
+    };
+
     // LANGKAH 1: fetch Supabase dulu sebagai sumber benar.
     async function loadFromSupabase() {
+      // Orders dimuat dulu (independen dari toko) supaya dashboard tidak kosong.
+      await loadOrders();
       try {        const [cloudMerchants, cloudStores] = await Promise.all([
           getMerchantsFromSupabase(),
           getAllStoresWithProductsFromSupabase(),
@@ -180,7 +199,10 @@ export default function HomePage() {
     loadFromSupabase();
   }, []);
 
-  const handleUpdateStore = (newStore: StoreInfo) => {
+  // Async (E-integrasi poin 8): dashboard menunggu hasilnya dan menampilkan
+  // error bila false. true hanya bila upsert toko DAN (bila owner berubah)
+  // upsert merchant sama-sama berhasil.
+  const handleUpdateStore = async (newStore: StoreInfo): Promise<boolean> => {
     setStoreInfo(newStore);
     setAllStores((prev) => {
       const updated = {
@@ -199,7 +221,35 @@ export default function HomePage() {
     });
 
     // Sync to Supabase Cloud
-    upsertStoreToSupabase(newStore).catch((e) => console.warn(e));
+    const okStore = await upsertStoreToSupabase(newStore).catch((e) => {
+      console.warn(e);
+      return false;
+    });
+
+    let okMerchant = true;
+    const merchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
+    if (merchant && newStore.ownerName && merchant.ownerName !== newStore.ownerName) {
+      const updatedMerchant: MerchantAccount = { ...merchant, ownerName: newStore.ownerName };
+      okMerchant = await upsertMerchantToSupabase(updatedMerchant).catch((e) => {
+        console.warn(e);
+        return false;
+      });
+      if (okMerchant) {
+        setMerchants((prev) => {
+          const updated = prev.map((m) =>
+            m.storeSlug === activeStoreSlug ? updatedMerchant : m
+          );
+          try {
+            localStorage.setItem('umkm_merchants', JSON.stringify(updated));
+          } catch (e) {
+            console.warn(e);
+          }
+          return updated;
+        });
+      }
+    }
+
+    return okStore && okMerchant;
   };
 
   const handleRegisterMerchant = (
@@ -235,6 +285,7 @@ export default function HomePage() {
     });
 
     setActiveStoreSlug(slug);
+    setRequestedStoreSlug(slug);
     setStoreInfo(newStore);
     setProducts(sampleProducts);
     setCartItems([]);
@@ -252,10 +303,30 @@ export default function HomePage() {
     const storeData = allStores[storeSlug];
     if (storeData) {
       setActiveStoreSlug(storeSlug);
+      setRequestedStoreSlug(storeSlug);
       setStoreInfo(storeData.store);
       setProducts(storeData.products);
       setCartItems([]);
       setActiveTab('admin');
+    }
+  };
+
+  // Pemilih toko etalase (C1): pindah ke ?store=<slug>, reset filter & keranjang.
+  const handleSelectStore = (slug: string) => {
+    const storeData = allStores[slug];
+    if (!storeData) return;
+    setActiveStoreSlug(slug);
+    setRequestedStoreSlug(slug);
+    setStoreInfo(storeData.store);
+    setProducts(storeData.products);
+    setCartItems([]);
+    setActiveCategory('Semua Menu');
+    setSearchQuery('');
+    setSelectedProduct(null);
+    try {
+      window.history.replaceState(null, '', `?store=${slug}`);
+    } catch (e) {
+      console.warn(e);
     }
   };
 
@@ -266,6 +337,7 @@ export default function HomePage() {
     const storeData = allStores[slug];
     if (storeData) {
       setActiveStoreSlug(slug);
+      setRequestedStoreSlug(slug);
       setStoreInfo(storeData.store);
       setProducts(storeData.products);
       setCartItems([]);
@@ -338,37 +410,110 @@ export default function HomePage() {
     name: '',
     phone: '',
     orderType: 'dine_in',
-    tableNumber: 'Meja 01',
+    tableNumber: '',
     address: '',
     notes: '',
   });
 
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('qris');
+  // Default kosong (bukan 'qris') supaya gerbang pilih metode di PaymentModal terasa.
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | ''>('');
+
+  // Kategori diturunkan dari produk toko aktif (C2) — bukan CATEGORIES hardcode.
+  const derivedCategories = useMemo(() => {
+    const unique = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
+    return ['Semua Menu', ...unique];
+  }, [products]);
+
+  // Toko aktif untuk pemilih toko (C1): merchant berstatus active; bila tidak
+  // ada data merchant, semua toko di allStores dianggap aktif.
+  const activeStores = useMemo(
+    () =>
+      Object.entries(allStores)
+        .filter(([slug]) => {
+          const m = merchants.find((mm) => mm.storeSlug === slug);
+          return !m || m.status === 'active';
+        })
+        .map(([slug, data]) => ({ slug, store: data.store })),
+    [allStores, merchants]
+  );
+
+  // Slug ?store= tidak dikenal: tampilkan pesan + daftar toko, jangan jatuh
+  // diam-diam ke toko default.
+  const storeNotFound =
+    !isLoading && requestedStoreSlug !== null && !allStores[requestedStoreSlug];
+
+  // document.title ikut toko aktif (C2).
+  useEffect(() => {
+    document.title = `${storeInfo.name} | Menu & Pesan Online UMKM`;
+  }, [storeInfo.name]);
 
   // Filtered Products Calculation
   const filteredProducts = useMemo(() => {
-    return products.filter((prod) => {
+    const filtered = products.filter((prod) => {
       const matchCategory =
         activeCategory === 'Semua Menu' || prod.category === activeCategory;
       const matchSearch =
         prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         prod.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchCategory && matchSearch;
+      const matchPrice =
+        priceRange === 'all'
+          ? true
+          : priceRange === 'under_10k'
+            ? prod.price < 10000
+            : priceRange === '10k_25k'
+              ? prod.price >= 10000 && prod.price <= 25000
+              : priceRange === '25k_50k'
+                ? prod.price > 25000 && prod.price <= 50000
+                : prod.price > 50000;
+      const isAvailableNow = prod.isAvailable && prod.stock !== 0;
+      const matchAvailability =
+        availabilityFilter === 'all'
+          ? true
+          : availabilityFilter === 'available'
+            ? isAvailableNow
+            : !isAvailableNow;
+      return matchCategory && matchSearch && matchPrice && matchAvailability;
     });
-  }, [products, activeCategory, searchQuery]);
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case 'price_asc':
+        sorted.sort((a, b) => a.price - b.price);
+        break;
+      case 'price_desc':
+        sorted.sort((a, b) => b.price - a.price);
+        break;
+      case 'rating_desc':
+        sorted.sort((a, b) => b.rating - a.rating);
+        break;
+      case 'name_asc':
+        sorted.sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
+        break;
+      case 'best_selling':
+      default:
+        sorted.sort((a, b) => b.salesCount - a.salesCount);
+        break;
+    }
+    return sorted;
+  }, [products, activeCategory, searchQuery, sortBy, priceRange, availabilityFilter]);
 
   // Cart Handlers
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = (product: Product, quantity = 1, notes?: string) => {
+    // Gerbang toko tutup (E1): tolak tambah ke keranjang bila toko tutup.
+    if (!storeInfo.isOpen) {
+      alert('Toko sedang tutup');
+      return;
+    }
+    const qty = Math.max(1, quantity);
     setCartItems((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
         return prev.map((item) =>
           item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + qty, notes: notes ?? item.notes }
             : item
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: qty, notes }];
     });
   };
 
@@ -394,6 +539,11 @@ export default function HomePage() {
 
   // Checkout Flow Handlers
   const handleProceedToCheckout = () => {
+    // Gerbang toko tutup (E1): cek isOpen sebelum checkout dibuka.
+    if (!storeInfo.isOpen) {
+      alert('Toko sedang tutup');
+      return;
+    }
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
   };
@@ -413,35 +563,41 @@ export default function HomePage() {
     setIsCheckoutOpen(true);
   };
 
-  const totalBill = useMemo(() => {
-    const subtotal = cartItems.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
-      0
-    );
-    const deliveryFee = 0; // Ongkir Rp 0 (Ambil Sendiri / Ongkir dicek penjual via WA)
-    const serviceFee = 2000;
-    return subtotal + deliveryFee + serviceFee;
-  }, [cartItems]);
+  const subtotal = useMemo(
+    () => cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
+    [cartItems]
+  );
+  // Ongkir hanya bila pesan antar; biaya layanan dari toko (default 2000).
+  const deliveryFee = customerDetails.orderType === 'delivery' ? (storeInfo.deliveryFee ?? 10000) : 0;
+  const serviceFee = storeInfo.serviceFee ?? 2000;
+  const totalBill = subtotal + serviceFee + deliveryFee;
 
-  const handleConfirmOrder = () => {
-    const subtotal = cartItems.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
-      0
-    );
-    const deliveryFee = 0;
-    const serviceFee = 2000;
+  // Bukti bayar opsional dari PaymentModal (E7): {payerName, paidAt}.
+  // PaymentModal meneruskan bukti itu lewat onConfirmOrder(proof).
+  const handleConfirmOrder = async (proof?: { payerName?: string; paidAt?: string }) => {
+    if (!selectedPaymentMethod) {
+      alert('Pilih metode pembayaran dulu.');
+      return;
+    }
+    if (cartItems.length === 0) return;
+
+    const paymentProofNote =
+      proof && (proof.payerName || proof.paidAt)
+        ? `Bukti bayar: ${proof.payerName ? `pengirim ${proof.payerName}` : ''}${proof.payerName && proof.paidAt ? ', ' : ''}${proof.paidAt ? `jam ${proof.paidAt}` : ''}`
+        : '';
+    const orderCustomer: CustomerDetails = {
+      ...customerDetails,
+      notes: [customerDetails.notes, paymentProofNote].filter(Boolean).join(' | ') || undefined,
+    };
 
     const newOrderNumber = `#JM-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const newOrder: Order = {
       id: 'ord-' + Date.now(),
       orderNumber: newOrderNumber,
-      createdAt: new Date().toLocaleTimeString('id-ID', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }) + ' WIB',
+      createdAt: new Date().toISOString(),
       items: [...cartItems],
-      customer: { ...customerDetails },
+      customer: orderCustomer,
       paymentMethod: selectedPaymentMethod,
       subtotal,
       deliveryFee,
@@ -450,17 +606,52 @@ export default function HomePage() {
       status: 'pending',
     };
 
-    // Save to orders feed (visible in Admin Dashboard)
-    setOrders((prev) => [newOrder, ...prev]);
+    // Simpan dulu ke Supabase; bila gagal, JANGAN kosongkan keranjang /
+    // tampilkan sukses — beri error dan biarkan pembeli coba lagi.
+    const saved = await createOrderInSupabase(newOrder, activeStoreSlug).catch((e) => {
+      console.warn(e);
+      return false;
+    });
+    if (!saved) {
+      alert('Pesanan gagal tersimpan. Periksa koneksi lalu coba lagi — keranjang Anda masih utuh.');
+      return;
+    }
+
+    // Kurangi stok produk yang dipesan (min 0; habis bila stok jadi 0).
+    const orderedQty = new Map<string, number>();
+    cartItems.forEach((item) =>
+      orderedQty.set(item.product.id, (orderedQty.get(item.product.id) || 0) + item.quantity)
+    );
+    const updatedProducts = products.map((p) => {
+      const qty = orderedQty.get(p.id);
+      if (qty == null || p.stock == null) return p;
+      const newStock = Math.max(0, p.stock - qty);
+      return { ...p, stock: newStock, isAvailable: newStock > 0 };
+    });
+    const changedProducts = updatedProducts.filter(
+      (p, i) => p.stock !== products[i].stock || p.isAvailable !== products[i].isAvailable
+    );
+    setProducts(updatedProducts);
+    changedProducts.forEach((p) => {
+      upsertProductToSupabase(p, activeStoreSlug).catch((e) => console.warn(e));
+    });
+
+    // Save to orders feed (visible in Admin Dashboard) + persist lokal.
+    setOrders((prev) => {
+      const updated = [newOrder, ...prev];
+      try {
+        localStorage.setItem('umkm_orders', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage save orders error:', e);
+      }
+      return updated;
+    });
     setCompletedOrder(newOrder);
 
     // Close payment modal and clear cart
     setIsPaymentOpen(false);
     setIsSuccessOpen(true);
     setCartItems([]);
-
-    // Sync to Supabase Cloud
-    createOrderInSupabase(newOrder, activeStoreSlug).catch((e) => console.warn(e));
   };
 
   // Admin Handlers
@@ -477,8 +668,10 @@ export default function HomePage() {
   };
 
   const handleDeleteProduct = (id: string) => {
+    // HANYA hapus dari state lokal: dashboard sudah menghapus di Supabase
+    // dulu sebelum memanggil ini — jangan panggil deleteProductFromSupabase
+    // lagi di sini (hapus ganda).
     setProducts((prev) => prev.filter((p) => p.id !== id));
-    deleteProductFromSupabase(id).catch((e) => console.warn(e));
   };
 
   const handleToggleAvailability = (id: string) => {
@@ -504,9 +697,18 @@ export default function HomePage() {
   }, [products]);
 
   const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status } : o))
-    );
+    setOrders((prev) => {
+      const updated = prev.map((o) => (o.id === orderId ? { ...o, status } : o));
+      try {
+        localStorage.setItem('umkm_orders', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage save orders error:', e);
+      }
+      return updated;
+    });
+    // Idempotent: dashboard juga memanggil updateOrderStatusInSupabase
+    // sebelum onUpdateOrderStatus — pemanggilan ganda tidak masalah.
+    updateOrderStatusInSupabase(orderId, status).catch((e) => console.warn(e));
   };
 
   const currentMerchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
@@ -568,7 +770,7 @@ export default function HomePage() {
     <div
       className="app-container"
       style={{
-        backgroundColor: storeInfo.backgroundColor || '#ffffff',
+        backgroundColor: storeInfo.backgroundColor || '#f8fafc',
         transition: 'background-color 0.3s ease',
       }}
     >
@@ -586,11 +788,33 @@ export default function HomePage() {
         <main
           className="customer-main"
           style={{
-            backgroundColor: storeInfo.backgroundColor || '#ffffff',
+            backgroundColor: storeInfo.backgroundColor || '#f8fafc',
             transition: 'background-color 0.3s ease',
           }}
         >
-          {isStoreInactive ? (
+          {storeNotFound ? (
+            /* SLUG TIDAK DIKENAL (C2): jangan jatuh diam-diam ke toko default */
+            <div className="no-products-box">
+              <span className="empty-search-icon">🏪</span>
+              <h3>Toko tidak ditemukan</h3>
+              <p>
+                Toko &ldquo;{requestedStoreSlug}&rdquo; tidak ada. Silakan pilih toko lain di bawah ini.
+              </p>
+              <div className="other-stores-chips">
+                {activeStores.map((s) => (
+                  <button
+                    key={s.slug}
+                    type="button"
+                    className="other-store-chip"
+                    onClick={() => handleSelectStore(s.slug)}
+                  >
+                    <span>🏪</span>
+                    <span>{s.store.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : isStoreInactive ? (
             /* TAMPILAN PERSUASIF & MENJAGA CITRA BRAND SAAT TOKO SEDANG REHAT / NONAKTIF */
             <div className="store-maintenance-container">
               <div className="store-maintenance-card">
@@ -720,13 +944,39 @@ export default function HomePage() {
           ) : (
             /* ETALASE BELANJA NORMAL (TOKO AKTIF) */
             <>
+              {/* Pemilih toko (C1): semua toko active, pindah ke ?store=<slug> */}
+              {activeStores.length > 1 && (
+                <div className="store-picker-strip">
+                  <span className="store-picker-label">Pilih toko:</span>
+                  <div className="store-picker-chips">
+                    {activeStores.map((s) => (
+                      <button
+                        key={s.slug}
+                        type="button"
+                        className={`store-picker-chip ${s.slug === activeStoreSlug ? 'active' : ''}`}
+                        onClick={() => handleSelectStore(s.slug)}
+                      >
+                        {s.store.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Sticky Category & Search Bar */}
               <CategoryFilter
-                categories={CATEGORIES}
+                categories={derivedCategories}
                 activeCategory={activeCategory}
                 onSelectCategory={setActiveCategory}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                priceRange={priceRange}
+                onPriceRangeChange={setPriceRange}
+                availabilityFilter={availabilityFilter}
+                onAvailabilityChange={setAvailabilityFilter}
+                searchPlaceholder={`Cari di ${storeInfo.name}...`}
               />
 
               {/* Promotional Banner Strip */}
@@ -775,6 +1025,7 @@ export default function HomePage() {
                         cartQuantity={currentQty}
                         onAddToCart={handleAddToCart}
                         onUpdateQuantity={handleUpdateQuantity}
+                        onOpenDetail={setSelectedProduct}
                       />
                     );
                   })}
@@ -789,6 +1040,17 @@ export default function HomePage() {
                 items={cartItems}
                 onOpenCart={() => setIsCartOpen(true)}
                 onClearCart={() => setCartItems([])}
+                serviceFee={serviceFee}
+                deliveryFee={storeInfo.deliveryFee ?? 10000}
+                orderType={customerDetails.orderType}
+              />
+
+              {/* Detail produk (D1, D2) */}
+              <ProductDetailModal
+                product={selectedProduct}
+                onClose={() => setSelectedProduct(null)}
+                onAddToCart={handleAddToCart}
+                isOpen={storeInfo.isOpen}
               />
 
               {/* Interactive Modals */}
@@ -799,6 +1061,9 @@ export default function HomePage() {
                 onUpdateQuantity={handleUpdateQuantity}
                 onUpdateNotes={handleUpdateNotes}
                 onProceedToCheckout={handleProceedToCheckout}
+                serviceFee={serviceFee}
+                deliveryFee={storeInfo.deliveryFee ?? 10000}
+                orderType={customerDetails.orderType}
               />
 
               <CheckoutModal
@@ -810,6 +1075,9 @@ export default function HomePage() {
                 onUpdateCustomer={setCustomerDetails}
                 onProceedToPayment={handleProceedToPayment}
                 store={storeInfo}
+                deliveryFee={storeInfo.deliveryFee ?? 10000}
+                serviceFee={serviceFee}
+                storeIsOpen={storeInfo.isOpen}
               />
 
               <PaymentModal
@@ -817,7 +1085,13 @@ export default function HomePage() {
                 onClose={() => setIsPaymentOpen(false)}
                 onBackToCheckout={handleBackToCheckout}
                 totalAmount={totalBill}
-                selectedPayment={selectedPaymentMethod}
+                amount={totalBill}
+                store={{
+                  name: storeInfo.name,
+                  qrisImageUrl: storeInfo.qrisImageUrl,
+                  bankAccounts: storeInfo.bankAccounts,
+                }}
+                selectedPayment={selectedPaymentMethod as PaymentMethod}
                 onSelectPayment={setSelectedPaymentMethod}
                 onConfirmOrder={handleConfirmOrder}
               />
@@ -869,7 +1143,10 @@ export default function HomePage() {
       )}
 
       {/* Footer Branding */}
-      <footer className="app-footer">
+      <footer
+        className="app-footer"
+        style={{ backgroundColor: storeInfo.backgroundColor || '#f8fafc' }}
+      >
         <p className="footer-store-name">© 2026 {storeInfo.name}</p>
         <p className="footer-tagline">
           Didukung oleh Sistem Order Online Instan UMKM • Cepat, Praktis, & Tanpa Antri
@@ -881,6 +1158,43 @@ export default function HomePage() {
           display: flex;
           flex-direction: column;
           flex: 1;
+        }
+
+        .store-picker-strip {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 20px 0 20px;
+          flex-wrap: wrap;
+        }
+
+        .store-picker-label {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #64748b;
+        }
+
+        .store-picker-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .store-picker-chip {
+          padding: 6px 14px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 999px;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: #334155;
+          cursor: pointer;
+        }
+
+        .store-picker-chip.active {
+          background: var(--primary);
+          color: #ffffff;
+          border-color: transparent;
         }
 
         .promo-callout-strip {
@@ -1262,7 +1576,7 @@ export default function HomePage() {
 
         .app-footer {
           margin-top: auto;
-          background: #ffffff;
+          background: #f8fafc;
           border-top: 1px solid var(--border-color);
           padding: 24px 20px;
           text-align: center;

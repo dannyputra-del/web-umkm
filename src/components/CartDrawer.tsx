@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CartItem } from '@/types';
+import { CartItem, OrderType } from '@/types';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -10,6 +10,9 @@ interface CartDrawerProps {
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onUpdateNotes: (productId: string, notes: string) => void;
   onProceedToCheckout: () => void;
+  serviceFee?: number;
+  deliveryFee?: number;
+  orderType?: OrderType;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -19,6 +22,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onUpdateQuantity,
   onUpdateNotes,
   onProceedToCheckout,
+  serviceFee = 2000,
+  deliveryFee = 0,
+  orderType = 'takeaway',
 }) => {
   if (!isOpen) return null;
 
@@ -27,6 +33,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     (sum, item) => sum + item.product.price * item.quantity,
     0
   );
+  const ongkir = orderType === 'delivery' ? deliveryFee : 0;
+  const total = subtotal + serviceFee + ongkir;
 
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
@@ -123,9 +131,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         {/* Footer */}
         {items.length > 0 && (
           <div className="modal-footer">
-            <div className="footer-summary-row">
-              <span className="summary-label">Total Sementara</span>
-              <span className="summary-amount">{formatRupiah(subtotal)}</span>
+            <div className="footer-breakdown">
+              <div className="footer-summary-row small">
+                <span className="summary-label">Subtotal</span>
+                <span className="summary-value">{formatRupiah(subtotal)}</span>
+              </div>
+              <div className="footer-summary-row small">
+                <span className="summary-label">Biaya layanan &amp; pengemasan</span>
+                <span className="summary-value">{formatRupiah(serviceFee)}</span>
+              </div>
+              <div className="footer-summary-row small">
+                <span className="summary-label">
+                  Ongkir {orderType === 'delivery' ? '(Pesan Antar)' : '(Tanpa ongkir)'}
+                </span>
+                <span className="summary-value">
+                  {orderType === 'delivery' ? formatRupiah(deliveryFee) : 'Rp 0'}
+                </span>
+              </div>
+              <div className="footer-summary-row">
+                <span className="summary-label">Total</span>
+                <span className="summary-amount">{formatRupiah(total)}</span>
+              </div>
             </div>
 
             <div className="footer-button-col">
@@ -296,11 +322,32 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           color: var(--primary);
         }
 
+        .footer-breakdown {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-bottom: 12px;
+        }
+
         .footer-summary-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 12px;
+        }
+
+        .footer-summary-row.small {
+          font-size: 0.8rem;
+          color: #64748b;
+        }
+
+        .footer-summary-row.small .summary-label {
+          font-size: 0.8rem;
+          font-weight: 500;
+        }
+
+        .summary-value {
+          font-weight: 700;
+          color: #334155;
         }
 
         .summary-label {

@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product, StoreInfo, Order } from '@/types';
-import { CATEGORIES } from '@/data/mockData';
 import { ImageDropzone } from './ImageDropzone';
 import { buatNamaFileUnik } from '@/lib/storageService';
+import { deleteProductFromSupabase, updateOrderStatusInSupabase } from '@/lib/supabaseService';
 
 interface AdminDashboardProps {
   store: StoreInfo;
-  onUpdateStore: (store: StoreInfo) => void;
+  onUpdateStore: (store: StoreInfo) => void | boolean | Promise<boolean>;
   products: Product[];
   onAddProduct: (newProduct: Product) => void;
   onUpdateProduct?: (product: Product) => void;
@@ -46,6 +46,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     image: '',
     badge: '',
     isAvailable: true,
+    stock: '10',
   });
   const [editFormError, setEditFormError] = useState('');
 
@@ -60,6 +61,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       image: prod.image || '',
       badge: prod.badge || '',
       isAvailable: prod.isAvailable,
+      stock: (prod.stock ?? 10).toString(),
     });
     setEditFormError('');
     setIsEditModalOpen(true);
@@ -78,6 +80,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
+    let originalPriceNum: number | undefined;
+    if (editFormData.originalPrice.trim()) {
+      originalPriceNum = parseFloat(editFormData.originalPrice);
+      if (isNaN(originalPriceNum)) {
+        setEditFormError('Harga coret harus berupa angka valid!');
+        return;
+      }
+      if (originalPriceNum <= priceNum) {
+        setEditFormError('Harga coret harus lebih besar dari harga jual!');
+        return;
+      }
+    }
+
+    const stockNum = parseInt(editFormData.stock, 10);
+    if (isNaN(stockNum) || stockNum < 0) {
+      setEditFormError('Stok harus berupa angka 0 atau lebih!');
+      return;
+    }
+
     if (!editingProductId) return;
 
     const original = products.find((p) => p.id === editingProductId);
@@ -86,13 +107,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: editFormData.name.trim(),
       category: editFormData.category,
       price: priceNum,
-      originalPrice: editFormData.originalPrice ? parseInt(editFormData.originalPrice, 10) : undefined,
+      originalPrice: originalPriceNum,
       description: editFormData.description.trim() || 'Menu lezat pilihan dari ' + store.name,
-      image: editFormData.image.trim() || (original?.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80'),
+      image: editFormData.image.trim() || (original?.image || '/images/placeholder.jpg'),
       badge: editFormData.badge.trim() || undefined,
-      rating: original?.rating ?? 5.0,
-      salesCount: original?.salesCount ?? 1,
+      rating: original?.rating ?? 0,
+      salesCount: original?.salesCount ?? 0,
       isAvailable: editFormData.isAvailable,
+      stock: stockNum,
     };
 
     if (onUpdateProduct) {
@@ -105,6 +127,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Store Personalization Draft State
   const [storeDraft, setStoreDraft] = useState<StoreInfo>(store);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [saveErrorMsg, setSaveErrorMsg] = useState('');
+
+  // Draf ikut data toko terbaru: bila data Supabase datang belakangan dan
+  // prop store berubah apa pun isinya, isi ulang draf supaya tidak basi.
+  useEffect(() => {
+    setStoreDraft(store);
+  }, [store]);
 
   const storeCategories = [
     'Kuliner & Makanan Basah',
@@ -116,13 +145,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'Kecantikan & Herbal',
   ];
 
-  const handleSaveStore = (e: React.FormEvent) => {
+  const validateStoreDraft = (draft: StoreInfo): string => {
+    const phoneRe = /^(\+62|62|0)8[0-9]{7,12}$/;
+    const bersihkan = (v: string) => v.replace(/[\s-]/g, '');
+    if (draft.whatsapp.trim() && !phoneRe.test(bersihkan(draft.whatsapp))) {
+      return 'Nomor WhatsApp tidak valid. Pakai format Indonesia, contoh 081234567890 atau 6281234567890.';
+    }
+    if (draft.phone.trim() && !phoneRe.test(bersihkan(draft.phone))) {
+      return 'Nomor telepon tidak valid. Pakai format Indonesia, contoh 081234567890.';
+    }
+    if (draft.googleMapsUrl && draft.googleMapsUrl.trim() && !draft.googleMapsUrl.trim().startsWith('http')) {
+      return 'Link Google Maps harus diawali http:// atau https://.';
+    }
+    if (!draft.openingHours.trim() || !draft.openingHours.includes('-')) {
+      return 'Jam buka wajib diisi dengan format "HH:MM - HH:MM WIB", contoh 08:00 - 21:00 WIB.';
+    }
+    return '';
+  };
+
+  const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateStore(storeDraft);
-    setSaveSuccessMsg('✓ Perubahan profil & tampilan web berhasil disimpan!');
+    setSaveErrorMsg('');
+    setSaveSuccessMsg('');
+    const err = validateStoreDraft(storeDraft);
+    if (err) {
+      setSaveErrorMsg(err);
+      return;
+    }
+    let hasil: unknown;
+    try {
+      hasil = await onUpdateStore(storeDraft);
+    } catch {
+      hasil = false;
+    }
+    if (hasil === false) {
+      setSaveErrorMsg('Gagal menyimpan ke Supabase. Perubahan belum tersimpan di cloud. Coba lagi.');
+      return;
+    }
+    if (hasil === true) {
+      setSaveSuccessMsg('✓ Perubahan profil & tampilan web berhasil disimpan!');
+    } else {
+      // Pemanggil (page.tsx) belum mengembalikan status simpan (void):
+      // sukses localStorage tidak bisa dipastikan untuk Supabase di sini.
+      setSaveSuccessMsg(
+        '✓ Perubahan tersimpan di perangkat ini. Status simpan cloud belum terverifikasi — menunggu sambungan integrasi.'
+      );
+    }
     setTimeout(() => {
       setSaveSuccessMsg('');
     }, 4000);
+  };
+
+  // Rekening bank toko (bankAccounts): tambah / ubah / hapus baris
+  const updateBankAccount = (idx: number, field: 'bank' | 'account' | 'holder', value: string) => {
+    const list = [...(storeDraft.bankAccounts ?? [])];
+    list[idx] = { ...list[idx], [field]: value };
+    setStoreDraft({ ...storeDraft, bankAccounts: list });
+  };
+
+  const addBankAccount = () => {
+    setStoreDraft({
+      ...storeDraft,
+      bankAccounts: [...(storeDraft.bankAccounts ?? []), { bank: '', account: '', holder: '' }],
+    });
+  };
+
+  const removeBankAccount = (idx: number) => {
+    setStoreDraft({
+      ...storeDraft,
+      bankAccounts: (storeDraft.bankAccounts ?? []).filter((_, i) => i !== idx),
+    });
+  };
+
+  // Hapus produk: TUNGGU Supabase dulu. Bila gagal, produk TETAP di daftar.
+  const [deleteError, setDeleteError] = useState('');
+  const handleDeleteProduct = async (id: string, name: string) => {
+    if (!confirm(`Yakin ingin menghapus kartu menu "${name}"?`)) return;
+    setDeleteError('');
+    const ok = await deleteProductFromSupabase(id);
+    if (!ok) {
+      setDeleteError(`Gagal menghapus "${name}" dari Supabase. Produk tetap ada di daftar, coba lagi.`);
+      return;
+    }
+    onDeleteProduct(id);
+  };
+
+  // Pesanan: saring seed contoh keluar dari daftar & metrik, lalu hitung
+  // metrik "Hari Ini" hanya dari order hari ini (tanggal lokal) yang tidak
+  // dibatalkan / ditolak.
+  const visibleOrders = orders.filter((o) => o.id !== 'ord-init-1');
+
+  const isToday = (createdAt: string): boolean => {
+    const d = new Date(createdAt);
+    if (isNaN(d.getTime())) return true; // format jam saja (mis. "12:45 WIB") dianggap hari ini
+    return d.toDateString() === new Date().toDateString();
+  };
+
+  const isOrderAktif = (o: Order) => o.status !== 'cancelled' && o.status !== 'rejected';
+  const todayOrders = visibleOrders.filter((o) => isToday(o.createdAt));
+  const todayRevenue = todayOrders
+    .filter(isOrderAktif)
+    .reduce((sum, o) => sum + o.total, 0);
+
+  // Ubah status pesanan: Supabase dulu, baru state lokal + localStorage.
+  // Bila Supabase gagal, status lama dipertahankan dan tampilkan error.
+  const [orderError, setOrderError] = useState('');
+  const handleChangeOrderStatus = async (orderId: string, status: Order['status']) => {
+    setOrderError('');
+    const ok = await updateOrderStatusInSupabase(orderId, status);
+    if (!ok) {
+      setOrderError('Gagal mengubah status pesanan di Supabase. Status dikembalikan seperti semula, coba lagi.');
+      return;
+    }
+    onUpdateOrderStatus(orderId, status);
+    try {
+      const updated = orders.map((o) => (o.id === orderId ? { ...o, status } : o));
+      localStorage.setItem('umkm_orders', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('LocalStorage save orders error:', e);
+    }
   };
 
   // Form State for Adding New Product Card
@@ -134,9 +275,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     description: '',
     image: '',
     badge: '',
+    isAvailable: true,
+    stock: '10',
   });
 
   const [formError, setFormError] = useState('');
+
+  // Kategori yang sudah dipakai produk toko ini (untuk datalist, bukan hardcode)
+  const productCategories = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
 
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,18 +297,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
+    let originalPriceNum: number | undefined;
+    if (formData.originalPrice.trim()) {
+      originalPriceNum = parseFloat(formData.originalPrice);
+      if (isNaN(originalPriceNum)) {
+        setFormError('Harga coret harus berupa angka valid!');
+        return;
+      }
+      if (originalPriceNum <= priceNum) {
+        setFormError('Harga coret harus lebih besar dari harga jual!');
+        return;
+      }
+    }
+
+    const stockNum = parseInt(formData.stock, 10);
+    if (isNaN(stockNum) || stockNum < 0) {
+      setFormError('Stok harus berupa angka 0 atau lebih!');
+      return;
+    }
+
     const newProd: Product = {
       id: 'prod-' + Date.now(),
       name: formData.name.trim(),
       category: formData.category,
       price: priceNum,
-      originalPrice: formData.originalPrice ? parseInt(formData.originalPrice, 10) : undefined,
+      originalPrice: originalPriceNum,
       description: formData.description.trim() || 'Menu lezat pilihan dari ' + store.name,
-      image: formData.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
+      image: formData.image.trim() || '/images/placeholder.jpg',
       badge: formData.badge.trim() || undefined,
-      rating: 5.0,
-      salesCount: 1,
-      isAvailable: true,
+      rating: 0,
+      salesCount: 0,
+      isAvailable: formData.isAvailable,
+      stock: stockNum,
     };
 
     onAddProduct(newProd);
@@ -174,6 +340,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       description: '',
       image: '',
       badge: '',
+      isAvailable: true,
+      stock: '10',
     });
     setFormError('');
     setIsAddModalOpen(false);
@@ -182,9 +350,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
   };
-
-  // Summary Metrics
-  const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
 
   return (
     <div className="admin-container">
@@ -215,7 +380,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="metric-card">
           <span className="metric-icon">📦</span>
           <div className="metric-content">
-            <span className="metric-num">{orders.length} Pesanan</span>
+            <span className="metric-num">{todayOrders.length} Pesanan</span>
             <span className="metric-label">Pesanan Masuk Hari Ini</span>
           </div>
         </div>
@@ -223,7 +388,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="metric-card">
           <span className="metric-icon">💰</span>
           <div className="metric-content">
-            <span className="metric-num">{formatRupiah(totalRevenue)}</span>
+            <span className="metric-num">{formatRupiah(todayRevenue)}</span>
             <span className="metric-label">Estimasi Omzet Hari Ini</span>
           </div>
         </div>
@@ -241,7 +406,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           className={`admin-tab-btn ${activeAdminTab === 'orders' ? 'active' : ''}`}
           onClick={() => setActiveAdminTab('orders')}
         >
-          🔔 Pesanan Masuk ({orders.length})
+          🔔 Pesanan Masuk ({visibleOrders.length})
         </button>
         <button
           className={`admin-tab-btn ${activeAdminTab === 'settings' ? 'active' : ''}`}
@@ -264,6 +429,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </div>
 
+          {deleteError && <div className="form-alert-error">{deleteError}</div>}
+
+          {products.length === 0 ? (
+            <div className="empty-orders-box">
+              <span>🍽️</span>
+              <h4>Belum ada menu. Tambah menu pertama Anda.</h4>
+              <p>Klik tombol di bawah untuk menambah kartu produk pertama ke etalase toko.</p>
+              <button className="btn-add-product" onClick={() => setIsAddModalOpen(true)} style={{ marginTop: '12px' }}>
+                <span>+ Tambah Menu Pertama</span>
+              </button>
+            </div>
+          ) : (
           <div className="product-table-wrapper">
             <table className="admin-table">
               <thead>
@@ -271,6 +448,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <th>Foto & Menu</th>
                   <th>Kategori</th>
                   <th>Harga Jual</th>
+                  <th>Harga Coret</th>
+                  <th>Rating / Terjual</th>
                   <th>Status Stok</th>
                   <th>Aksi</th>
                 </tr>
@@ -295,12 +474,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <strong className="table-price">{formatRupiah(prod.price)}</strong>
                     </td>
                     <td>
+                      {prod.originalPrice ? (
+                        <span className="table-original-price">{formatRupiah(prod.originalPrice)}</span>
+                      ) : (
+                        <span className="table-empty-cell">-</span>
+                      )}
+                    </td>
+                    <td>
+                      {prod.rating > 0 ? (
+                        <span className="table-rating">⭐ {prod.rating.toFixed(1)} • {prod.salesCount} terjual</span>
+                      ) : (
+                        <span className="table-empty-cell">Belum ada ulasan</span>
+                      )}
+                    </td>
+                    <td>
                       <button
                         className={`status-toggle-btn ${prod.isAvailable ? 'available' : 'unavailable'}`}
                         onClick={() => onToggleAvailability(prod.id)}
                       >
                         {prod.isAvailable ? '🟢 Tersedia' : '🔴 Habis'}
                       </button>
+                      <div className="table-stock">Stok: {prod.stock ?? 10}</div>
                     </td>
                     <td>
                       <div className="table-actions">
@@ -313,11 +507,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </button>
                         <button
                           className="btn-action-del"
-                          onClick={() => {
-                            if (confirm(`Yakin ingin menghapus kartu menu "${prod.name}"?`)) {
-                              onDeleteProduct(prod.id);
-                            }
-                          }}
+                          onClick={() => handleDeleteProduct(prod.id, prod.name)}
                           title="Hapus Kartu Produk"
                         >
                           🗑️ Hapus
@@ -329,6 +519,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -342,7 +533,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {orders.length === 0 ? (
+          {orderError && <div className="form-alert-error">{orderError}</div>}
+
+          {visibleOrders.length === 0 ? (
             <div className="empty-orders-box">
               <span>📭</span>
               <h4>Belum Ada Pesanan Masuk</h4>
@@ -350,7 +543,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           ) : (
             <div className="orders-cards-grid">
-              {orders.map((ord) => (
+              {visibleOrders.map((ord) => (
                 <div key={ord.id} className="order-live-card">
                   <div className="order-card-header">
                     <div>
@@ -364,6 +557,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         ? '👨‍🍳 Dimasak'
                         : ord.status === 'ready'
                         ? '🍽️ Siap Saji'
+                        : ord.status === 'cancelled'
+                        ? '❌ Dibatalkan'
+                        : ord.status === 'rejected'
+                        ? '⛔ Ditolak'
                         : '✅ Selesai'}
                     </span>
                   </div>
@@ -377,15 +574,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         ? '🛍️ Ambil Sendiri (Takeaway)'
                         : `🛵 Antar ke: ${ord.customer.address}`}
                     </div>
+                    {ord.customer.notes && (
+                      <div className="customer-notes">📝 Catatan pembeli: {ord.customer.notes}</div>
+                    )}
                   </div>
 
                   <div className="order-menu-list">
                     {ord.items.map((it) => (
                       <div key={it.product.id} className="menu-list-row">
-                        <span>{it.quantity}x {it.product.name}</span>
+                        <span>
+                          {it.quantity}x {it.product.name}
+                          {it.notes ? <span className="item-notes"> ({it.notes})</span> : null}
+                        </span>
                         <span>{formatRupiah(it.product.price * it.quantity)}</span>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="order-breakdown">
+                    <div className="breakdown-row">
+                      <span>Metode bayar:</span>
+                      <strong>
+                        {ord.paymentMethod === 'qris'
+                          ? 'QRIS'
+                          : ord.paymentMethod === 'bank_transfer'
+                          ? 'Transfer Bank'
+                          : 'Tunai'}
+                      </strong>
+                    </div>
+                    <div className="breakdown-row">
+                      <span>Subtotal:</span>
+                      <span>{formatRupiah(ord.subtotal)}</span>
+                    </div>
+                    <div className="breakdown-row">
+                      <span>Ongkir:</span>
+                      <span>{formatRupiah(ord.deliveryFee)}</span>
+                    </div>
+                    <div className="breakdown-row">
+                      <span>Biaya layanan:</span>
+                      <span>{formatRupiah(ord.serviceFee)}</span>
+                    </div>
                   </div>
 
                   <div className="order-footer-strip">
@@ -398,7 +626,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {ord.status === 'pending' && (
                         <button
                           className="btn-status-flow cooking"
-                          onClick={() => onUpdateOrderStatus(ord.id, 'cooking')}
+                          onClick={() => handleChangeOrderStatus(ord.id, 'cooking')}
                         >
                           Mulai Masak 👨‍🍳
                         </button>
@@ -406,7 +634,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {ord.status === 'cooking' && (
                         <button
                           className="btn-status-flow ready"
-                          onClick={() => onUpdateOrderStatus(ord.id, 'ready')}
+                          onClick={() => handleChangeOrderStatus(ord.id, 'ready')}
                         >
                           Makanan Siap 🍽️
                         </button>
@@ -414,10 +642,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {ord.status === 'ready' && (
                         <button
                           className="btn-status-flow complete"
-                          onClick={() => onUpdateOrderStatus(ord.id, 'completed')}
+                          onClick={() => handleChangeOrderStatus(ord.id, 'completed')}
                         >
                           Selesaikan Pesanan ✅
                         </button>
+                      )}
+                      {(ord.status === 'pending' || ord.status === 'cooking' || ord.status === 'ready') && (
+                        <>
+                          <button
+                            className="btn-status-flow cancel"
+                            onClick={() => {
+                              if (confirm(`Batalkan pesanan ${ord.orderNumber}?`)) {
+                                handleChangeOrderStatus(ord.id, 'cancelled');
+                              }
+                            }}
+                          >
+                            Batalkan ❌
+                          </button>
+                          <button
+                            className="btn-status-flow reject"
+                            onClick={() => {
+                              if (confirm(`Tolak pesanan ${ord.orderNumber}?`)) {
+                                handleChangeOrderStatus(ord.id, 'rejected');
+                              }
+                            }}
+                          >
+                            Tolak ⛔
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -448,6 +700,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {saveSuccessMsg && (
             <div className="save-toast-banner">
               <span>{saveSuccessMsg}</span>
+            </div>
+          )}
+
+          {saveErrorMsg && (
+            <div className="save-error-banner">
+              <span>{saveErrorMsg}</span>
             </div>
           )}
 
@@ -510,6 +768,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="form-input"
                     required
                   />
+                </div>
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Nama Owner / Pemilik Toko</label>
+                    <input
+                      type="text"
+                      placeholder="Cth: Budi Santoso"
+                      value={storeDraft.ownerName || ''}
+                      onChange={(e) => setStoreDraft({ ...storeDraft, ownerName: e.target.value })}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Slug Toko (alamat web, tidak bisa diubah)</label>
+                    <input
+                      type="text"
+                      value={storeDraft.slug}
+                      readOnly
+                      className="form-input"
+                      title="Slug ditentukan saat toko dibuat dan tidak bisa diubah"
+                    />
+                    <span className="input-hint">Alamat web toko Anda: ?store={storeDraft.slug}</span>
+                  </div>
                 </div>
 
                 <div className="form-group">
@@ -671,6 +954,107 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Card 3b: Ongkir, Biaya Layanan & Pembayaran */}
+              <div className="settings-section-card">
+                <div className="section-card-header">
+                  <span className="card-badge-icon">💳</span>
+                  <div>
+                    <h4>Ongkir, Biaya Layanan & Pembayaran</h4>
+                    <p>Atur biaya pengiriman, biaya layanan, QRIS, dan rekening bank toko.</p>
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Ongkir / Biaya Antar (Rp)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="Cth: 10000"
+                      value={storeDraft.deliveryFee ?? 10000}
+                      onChange={(e) =>
+                        setStoreDraft({
+                          ...storeDraft,
+                          deliveryFee: e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0),
+                        })
+                      }
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Biaya Layanan (Rp)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="Cth: 2000"
+                      value={storeDraft.serviceFee ?? 2000}
+                      onChange={(e) =>
+                        setStoreDraft({
+                          ...storeDraft,
+                          serviceFee: e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0),
+                        })
+                      }
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Gambar QRIS Toko (URL / path gambar, boleh kosong)</label>
+                  <input
+                    type="text"
+                    placeholder="Cth: /images/qris-toko.jpg atau https://..."
+                    value={storeDraft.qrisImageUrl || ''}
+                    onChange={(e) => setStoreDraft({ ...storeDraft, qrisImageUrl: e.target.value })}
+                    className="form-input"
+                  />
+                  <span className="input-hint">
+                    Unggah gambar QRIS asli toko Anda dan isi alamat gambarnya di sini. Pembeli akan melihat QRIS ini saat checkout.
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Rekening Bank Toko</label>
+                  {(storeDraft.bankAccounts ?? []).map((acc, idx) => (
+                    <div key={idx} className="bank-account-row">
+                      <input
+                        type="text"
+                        placeholder="Bank (cth: BCA)"
+                        value={acc.bank}
+                        onChange={(e) => updateBankAccount(idx, 'bank', e.target.value)}
+                        className="form-input"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Nomor rekening"
+                        value={acc.account}
+                        onChange={(e) => updateBankAccount(idx, 'account', e.target.value)}
+                        className="form-input"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Nama pemilik rekening"
+                        value={acc.holder}
+                        onChange={(e) => updateBankAccount(idx, 'holder', e.target.value)}
+                        className="form-input"
+                      />
+                      <button
+                        type="button"
+                        className="btn-action-del"
+                        onClick={() => removeBankAccount(idx)}
+                        title="Hapus rekening ini"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" className="btn-add-bank" onClick={addBankAccount}>
+                    + Tambah Rekening
+                  </button>
+                </div>
+              </div>
+
               {/* Card 4: Pilihan Tema & Warna Latar Belakang */}
               <div className="settings-section-card">
                 <div className="section-card-header">
@@ -811,6 +1195,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                     <h3 className="mock-store-name">{storeDraft.name || 'Nama Toko Anda'}</h3>
                     <p className="mock-tagline">{storeDraft.tagline || 'Slogan toko Anda akan muncul di sini'}</p>
+                    {storeDraft.ownerName && (
+                      <p className="mock-owner">👤 Owner: {storeDraft.ownerName}</p>
+                    )}
+                    {storeDraft.phone && (
+                      <p className="mock-phone">📞 {storeDraft.phone}</p>
+                    )}
                     <p className="mock-category">🏷️ {storeDraft.category}</p>
                     <p className="mock-address">📍 {storeDraft.address || 'Alamat toko'}</p>
 
@@ -886,17 +1276,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="form-group">
                 <label className="form-label">Kategori Produk</label>
-                <select
+                <input
+                  type="text"
+                  list="product-category-list"
+                  placeholder="Cth: Lauk Utama, Batik, Kue Kering — ketik bebas atau pilih yang sudah ada"
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="form-select"
-                >
-                  {CATEGORIES.filter((c) => c !== 'Semua Menu').map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
+                  className="form-input"
+                />
+                <datalist id="product-category-list">
+                  {productCategories.map((cat) => (
+                    <option key={cat} value={cat} />
                   ))}
-                </select>
+                </datalist>
               </div>
 
               <div className="form-row-2">
@@ -921,6 +1313,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     onChange={(e) => setFormData({ ...formData, originalPrice: e.target.value })}
                     className="form-input"
                   />
+                </div>
+              </div>
+
+              <div className="form-row-2">
+                <div className="form-group">
+                  <label className="form-label">Stok (jumlah tersedia)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="Cth: 10"
+                    value={formData.stock}
+                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                    className="form-input"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Status Ketersediaan</label>
+                  <div className="status-toggle-card" style={{ marginTop: '4px' }}>
+                    <div className="status-toggle-info">
+                      <span className="toggle-title">
+                        {formData.isAvailable ? '🟢 Menu Tersedia' : '🔴 Menu Sedang Habis'}
+                      </span>
+                      <span className="toggle-desc">
+                        {formData.isAvailable
+                          ? 'Pelanggan dapat memesan menu ini di etalase web.'
+                          : 'Pelanggan tidak dapat memesan menu ini saat ini.'}
+                      </span>
+                    </div>
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={formData.isAvailable}
+                        onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
+                      />
+                      <span className="slider round"></span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -1008,17 +1438,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="form-group">
                 <label className="form-label">Kategori Produk</label>
-                <select
+                <input
+                  type="text"
+                  list="product-category-list"
+                  placeholder="Cth: Lauk Utama, Batik, Kue Kering — ketik bebas atau pilih yang sudah ada"
                   value={editFormData.category}
                   onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
-                  className="form-select"
-                >
-                  {CATEGORIES.filter((c) => c !== 'Semua Menu').map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
+                  className="form-input"
+                />
+                <datalist id="product-category-list">
+                  {productCategories.map((cat) => (
+                    <option key={cat} value={cat} />
                   ))}
-                </select>
+                </datalist>
               </div>
 
               <div className="form-row-2">
@@ -1044,6 +1476,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="form-input"
                   />
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Stok (jumlah tersedia)</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Cth: 10"
+                  value={editFormData.stock}
+                  onChange={(e) => setEditFormData({ ...editFormData, stock: e.target.value })}
+                  className="form-input"
+                />
               </div>
 
               <div className="form-group">
@@ -1475,6 +1919,124 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         .order-status-badge.completed {
           background: #ecfdf5;
           color: #047857;
+        }
+
+        .order-status-badge.cancelled {
+          background: #fef2f2;
+          color: #b91c1c;
+        }
+
+        .order-status-badge.rejected {
+          background: #f1f5f9;
+          color: #475569;
+        }
+
+        .status-change-buttons {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .btn-status-flow.cancel {
+          background: #dc2626;
+        }
+
+        .btn-status-flow.reject {
+          background: #64748b;
+        }
+
+        .order-breakdown {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          font-size: 0.78rem;
+          margin-bottom: 10px;
+          border-bottom: 1px dashed #e2e8f0;
+          padding-bottom: 8px;
+        }
+
+        .breakdown-row {
+          display: flex;
+          justify-content: space-between;
+          color: #475569;
+        }
+
+        .customer-notes {
+          color: #92400e;
+          margin-top: 4px;
+        }
+
+        .item-notes {
+          color: #94a3b8;
+          font-style: italic;
+        }
+
+        .table-original-price {
+          color: #94a3b8;
+          text-decoration: line-through;
+          font-weight: 600;
+        }
+
+        .table-rating {
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: #475569;
+          white-space: nowrap;
+        }
+
+        .table-empty-cell {
+          font-size: 0.78rem;
+          color: #94a3b8;
+        }
+
+        .table-stock {
+          font-size: 0.72rem;
+          color: #64748b;
+          margin-top: 4px;
+          font-weight: 600;
+        }
+
+        .save-error-banner {
+          background: #fef2f2;
+          border: 1px solid #fca5a5;
+          color: #991b1b;
+          padding: 12px 18px;
+          border-radius: var(--radius-md);
+          font-weight: 700;
+          font-size: 0.9rem;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .bank-account-row {
+          display: grid;
+          grid-template-columns: 1fr 1.2fr 1.2fr auto;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .btn-add-bank {
+          background: #eff6ff;
+          color: #2563eb;
+          border: 1px solid #bfdbfe;
+          padding: 8px 14px;
+          border-radius: 8px;
+          font-size: 0.8rem;
+          font-weight: 700;
+          cursor: pointer;
+          margin-top: 4px;
+        }
+
+        .mock-owner,
+        .mock-phone {
+          font-size: 0.78rem;
+          color: #64748b;
+          font-weight: 600;
+          margin-bottom: 4px;
         }
 
         .customer-info-strip {

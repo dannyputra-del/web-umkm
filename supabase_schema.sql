@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS public.stores (
   logo TEXT,
   banner TEXT,
   background_color TEXT DEFAULT '#ffffff',
-  owner_name TEXT
+  owner_name TEXT,
+  delivery_fee NUMERIC NOT NULL DEFAULT 10000,
+  service_fee NUMERIC NOT NULL DEFAULT 2000,
+  qris_image_url TEXT,
+  bank_accounts JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 -- 3. TABEL PRODUK & MENU TOKO (PRODUCTS)
@@ -46,8 +50,11 @@ CREATE TABLE IF NOT EXISTS public.products (
   price NUMERIC NOT NULL DEFAULT 0,
   description TEXT,
   image TEXT,
-  rating NUMERIC DEFAULT 5.0,
+  badge TEXT,
+  "originalPrice" NUMERIC,
+  rating NUMERIC DEFAULT 0,
   sales_count INT DEFAULT 0,
+  stock INTEGER NOT NULL DEFAULT 10,
   is_available BOOLEAN DEFAULT true
 );
 
@@ -68,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
   delivery_fee NUMERIC NOT NULL DEFAULT 0,
   service_fee NUMERIC NOT NULL DEFAULT 0,
   total NUMERIC NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'cooking' CHECK (status IN ('cooking', 'ready', 'done')),
+  status TEXT NOT NULL DEFAULT 'cooking' CHECK (status IN ('pending', 'cooking', 'ready', 'completed', 'cancelled', 'rejected')),
   items JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 

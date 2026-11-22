@@ -12,6 +12,9 @@ interface CheckoutModalProps {
   onUpdateCustomer: (customer: CustomerDetails) => void;
   onProceedToPayment: () => void;
   store: StoreInfo;
+  deliveryFee?: number;
+  serviceFee?: number;
+  storeIsOpen?: boolean;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -23,6 +26,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onUpdateCustomer,
   onProceedToPayment,
   store,
+  deliveryFee = 10000,
+  serviceFee = 2000,
+  storeIsOpen = true,
 }) => {
   if (!isOpen) return null;
 
@@ -33,9 +39,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     0
   );
 
-  const deliveryFee = 0;
-  const serviceFee = 2000;
-  const total = subtotal + deliveryFee + serviceFee;
+  const ongkir = customer.orderType === 'delivery' ? deliveryFee : 0;
+  const total = subtotal + serviceFee + ongkir;
 
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
@@ -44,9 +49,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
 
   const handleOrderTypeChange = (type: OrderType) => {
+    // Kosongkan nomor meja & alamat saat tipe berubah, jangan biarkan nilai basi.
     onUpdateCustomer({
       ...customer,
       orderType: type,
+      tableNumber: '',
+      address: '',
     });
   };
 
@@ -57,8 +65,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     if (!customer.name.trim()) {
       errors.name = 'Nama lengkap wajib diisi';
     }
-    if (!customer.phone.trim() || customer.phone.length < 8) {
-      errors.phone = 'Nomor WhatsApp valid wajib diisi';
+    // Validasi telepon Indonesia: buang spasi/strip, harus diawali 08 / 62 / +62 lalu angka 8.
+    const cleanedPhone = customer.phone.replace(/[\s-]/g, '');
+    if (!/^(\+62|62|0)8[0-9]{7,12}$/.test(cleanedPhone)) {
+      errors.phone =
+        'Nomor WhatsApp tidak valid. Nomor harus diawali 08, 62, atau +62 dan diikuti angka 8 (contoh: 08123456789)';
     }
     if (customer.orderType === 'dine_in' && !customer.tableNumber?.trim()) {
       errors.tableNumber = 'Nomor meja wajib diisi jika makan di tempat';
@@ -204,7 +215,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <span className="error-msg">{formErrors.address}</span>
               )}
               <span className="delivery-ongkir-note">
-                🛵 <strong>Catatan Ongkos Kirim:</strong> Ongkir akan dicek oleh penjual dan diinfokan melalui konfirmasi WhatsApp.
+                🛵 <strong>Ongkos Kirim:</strong> {formatRupiah(deliveryFee)} — sudah termasuk di Total Tagihan di bawah.
               </span>
             </div>
           )}
@@ -265,21 +276,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <span>Subtotal ({items.reduce((s, i) => s + i.quantity, 0)} menu)</span>
               <span>{formatRupiah(subtotal)}</span>
             </div>
-            {customer.orderType === 'delivery' && (
-              <div className="breakdown-row">
-                <span>Ongkos Kirim Kurir</span>
-                <span style={{ color: '#ea580c', fontWeight: 700 }}>Dikonfirmasi via WA</span>
-              </div>
-            )}
-            {customer.orderType === 'takeaway' && (
-              <div className="breakdown-row">
-                <span>Metode Penjemputan</span>
-                <span style={{ color: '#059669', fontWeight: 700 }}>Ambil Sendiri / Pickup (Gratis)</span>
-              </div>
-            )}
             <div className="breakdown-row">
-              <span>Biaya Layanan & Pengemasan</span>
+              <span>Biaya Layanan &amp; Pengemasan</span>
               <span>{formatRupiah(serviceFee)}</span>
+            </div>
+            <div className="breakdown-row">
+              <span>
+                Ongkir {customer.orderType === 'delivery' ? '(Pesan Antar)' : '(Tanpa ongkir)'}
+              </span>
+              <span>
+                {customer.orderType === 'delivery' ? formatRupiah(deliveryFee) : 'Rp 0'}
+              </span>
             </div>
             <div className="breakdown-total-row">
               <span>Total Tagihan:</span>
@@ -289,10 +296,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
           {/* Submit Button */}
           <div className="submit-section">
-            <button type="submit" className="btn-proceed-payment">
-              <span>Lanjut ke Pilihan Pembayaran</span>
-              <span>💳 →</span>
+            <button
+              type="submit"
+              className="btn-proceed-payment"
+              disabled={!storeIsOpen}
+            >
+              <span>
+                {storeIsOpen ? 'Lanjut ke Pilihan Pembayaran' : 'Toko sedang tutup'}
+              </span>
+              {storeIsOpen && <span>💳 →</span>}
             </button>
+            {!storeIsOpen && (
+              <span className="error-msg" style={{ textAlign: 'center', marginTop: 8 }}>
+                Toko sedang tutup — checkout tidak bisa dilanjutkan sekarang.
+              </span>
+            )}
           </div>
         </form>
       </div>
@@ -536,6 +554,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
         .btn-proceed-payment:hover {
           background: var(--accent-green-hover);
+        }
+
+        .btn-proceed-payment:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+
+        .btn-proceed-payment:disabled:hover {
+          background: var(--accent-green);
         }
       `}</style>
     </div>

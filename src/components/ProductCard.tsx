@@ -3,8 +3,12 @@
 import React from 'react';
 import { Product } from '@/types';
 
+// stock ditambah pekerja lain ke tipe Product (kontrak data);
+// intersection ini membuat file ini tetap lolos tsc sebelum/sesudah tipe itu ada.
+type ProductWithStock = Product & { stock?: number };
+
 interface ProductCardProps {
-  product: Product;
+  product: ProductWithStock;
   cartQuantity: number;
   onAddToCart: (product: Product) => void;
   onUpdateQuantity: (productId: string, quantity: number) => void;
@@ -22,8 +26,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     return 'Rp ' + val.toLocaleString('id-ID');
   };
 
+  // Stok 0 = habis, walau isAvailable masih true.
+  const isSoldOut = !product.isAvailable || product.stock === 0;
+  const stockLabel = isSoldOut
+    ? 'Habis Terjual'
+    : product.stock != null
+      ? `Sisa ${product.stock}`
+      : 'Tersedia';
+
   return (
-    <div className="product-card">
+    <div
+      className="product-card"
+      onClick={() => onOpenDetail && onOpenDetail(product)}
+    >
       {/* Product Image Box */}
       <div 
         className="card-image-box"
@@ -38,7 +53,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {product.badge && (
           <span className="card-badge">{product.badge}</span>
         )}
-        {!product.isAvailable && (
+        {isSoldOut && (
           <div className="card-sold-out-overlay">
             <span>Habis Terjual</span>
           </div>
@@ -49,11 +64,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <div className="card-content-box">
         <div className="card-meta-row">
           <span className="category-tag">{product.category}</span>
-          <div className="rating-pill">
-            <span className="star-icon">★</span>
-            <span className="rating-val">{product.rating}</span>
-            <span className="sales-val">({product.salesCount}+)</span>
-          </div>
+          {product.rating === 0 ? (
+            <span className="no-review">Belum ada ulasan</span>
+          ) : (
+            <div className="rating-pill">
+              <span className="star-icon">★</span>
+              <span className="rating-val">{product.rating}</span>
+              <span className="sales-val">({product.salesCount}+)</span>
+            </div>
+          )}
         </div>
 
         <h3 
@@ -64,6 +83,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </h3>
 
         <p className="product-desc">{product.description}</p>
+
+        <div className="stock-row">
+          <span className={`stock-label ${isSoldOut ? 'sold-out' : ''}`}>
+            {stockLabel}
+          </span>
+        </div>
 
         {/* Price & Action Row */}
         <div className="card-bottom-row">
@@ -76,8 +101,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
           </div>
 
-          <div className="action-container">
-            {!product.isAvailable ? (
+          <div
+            className="action-container"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isSoldOut ? (
               <button className="btn-unavailable" disabled>
                 Habis
               </button>
@@ -123,6 +151,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           box-shadow: var(--shadow-sm);
           transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
           position: relative;
+          cursor: pointer;
         }
 
         .product-card:hover {
@@ -222,6 +251,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           font-weight: normal;
         }
 
+        .no-review {
+          font-size: 0.72rem;
+          color: #94a3b8;
+          font-weight: normal;
+        }
+
         .product-name {
           font-size: 0.98rem;
           font-weight: 700;
@@ -239,12 +274,30 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           font-size: 0.78rem;
           color: #64748b;
           line-height: 1.45;
-          margin-bottom: 14px;
+          margin-bottom: 8px;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
           flex: 1;
+        }
+
+        .stock-row {
+          margin-bottom: 10px;
+        }
+
+        .stock-label {
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: #047857;
+          background: #ecfdf5;
+          padding: 2px 8px;
+          border-radius: var(--radius-full);
+        }
+
+        .stock-label.sold-out {
+          color: #b91c1c;
+          background: #fef2f2;
         }
 
         .card-bottom-row {

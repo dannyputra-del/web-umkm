@@ -1,24 +1,33 @@
 'use client';
 
 import React from 'react';
-import { CartItem } from '@/types';
+import { CartItem, OrderType } from '@/types';
 
 interface CartFloatingBarProps {
   items: CartItem[];
   onOpenCart: () => void;
   onClearCart?: () => void;
+  serviceFee?: number;
+  deliveryFee?: number;
+  orderType?: OrderType;
 }
 
 export const CartFloatingBar: React.FC<CartFloatingBarProps> = ({
   items,
   onOpenCart,
   onClearCart,
+  serviceFee = 2000,
+  deliveryFee = 0,
+  orderType = 'takeaway',
 }) => {
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = items.reduce(
+  const subtotal = items.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
     0
   );
+  // Total sama dengan total checkout: subtotal + biaya layanan + ongkir (bila delivery).
+  const ongkir = orderType === 'delivery' ? deliveryFee : 0;
+  const totalPrice = subtotal + serviceFee + ongkir;
 
   if (totalQuantity === 0) return null;
 

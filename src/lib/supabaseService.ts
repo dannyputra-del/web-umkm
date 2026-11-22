@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { MerchantAccount, StoreInfo, Product, Order } from '@/types';
+import { MerchantAccount, StoreInfo, Product, Order, CartItem } from '@/types';
 
 // ==========================================
 // 1. MERCHANTS SERVICE
@@ -125,8 +125,9 @@ export async function getAllStoresWithProductsFromSupabase(): Promise<Record<
           originalPrice: p['originalPrice'] != null ? Number(p['originalPrice']) : undefined,
           description: p.description || '',
           image: p.image || '',
-          rating: Number(p.rating) || 5.0,
-          salesCount: p.sales_count || 0,
+          rating: Number(p.rating) || 0,
+          salesCount: p.sales_count ?? 0,
+          stock: Number(p.stock ?? 10),
           isAvailable: p.is_available ?? true,
         });
       });
@@ -151,6 +152,12 @@ export async function getAllStoresWithProductsFromSupabase(): Promise<Record<
           banner: s.banner || '',
           backgroundColor: s.background_color || '#ffffff',
           ownerName: s.owner_name || '',
+          // Kolom baru: delivery_fee / service_fee (default awal 10000 / 2000,
+          // bisa diubah pemilik di dashboard), qris_image_url, bank_accounts.
+          deliveryFee: Number(s.delivery_fee ?? 10000),
+          serviceFee: Number(s.service_fee ?? 2000),
+          qrisImageUrl: s.qris_image_url || undefined,
+          bankAccounts: Array.isArray(s.bank_accounts) ? s.bank_accounts : [],
         },
         products: productsByStore[s.slug] || [],
       };
@@ -181,6 +188,10 @@ export async function upsertStoreToSupabase(store: StoreInfo): Promise<boolean> 
       banner: store.banner,
       background_color: store.backgroundColor,
       owner_name: store.ownerName,
+      delivery_fee: store.deliveryFee ?? 10000,
+      service_fee: store.serviceFee ?? 2000,
+      qris_image_url: store.qrisImageUrl ?? null,
+      bank_accounts: store.bankAccounts ?? [],
     });
 
     if (error) {
@@ -209,6 +220,7 @@ export async function upsertProductToSupabase(product: Product, storeSlug: strin
       image: product.image,
       rating: product.rating,
       sales_count: product.salesCount,
+      stock: product.stock ?? 10,
       is_available: product.isAvailable,
     });
 
@@ -266,6 +278,64 @@ export async function createOrderInSupabase(order: Order, storeSlug: string): Pr
     return true;
   } catch (err) {
     console.warn('Network error creating order:', err);
+    return false;
+  }
+}
+
+export async function getOrdersFromSupabase(storeSlug?: string): Promise<Order[] | null> {
+  try {
+    let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
+    if (storeSlug) {
+      query = query.eq('store_slug', storeSlug);
+    }
+    const { data, error } = await query;
+
+    if (error || !data) {
+      console.warn('Supabase getOrders error:', error);
+      return null;
+    }
+
+    return data.map((row) => ({
+      id: row.id,
+      orderNumber: row.order_number,
+      // created_at disimpan sebagai TEXT berisi ISO lengkap.
+      createdAt: row.created_at,
+      items: Array.isArray(row.items) ? (row.items as CartItem[]) : [],
+      customer: {
+        name: row.customer_name,
+        phone: row.customer_phone,
+        orderType: row.order_type,
+        tableNumber: row.table_number || undefined,
+        address: row.address || undefined,
+        notes: row.notes || undefined,
+      },
+      paymentMethod: row.payment_method,
+      subtotal: Number(row.subtotal ?? 0),
+      deliveryFee: Number(row.delivery_fee ?? 0),
+      serviceFee: Number(row.service_fee ?? 0),
+      total: Number(row.total ?? 0),
+      status: row.status,
+    }));
+  } catch (err) {
+    console.warn('Network error fetching orders:', err);
+    return null;
+  }
+}
+
+export async function updateOrderStatusInSupabase(
+  orderId: string,
+  status: Order['status']
+): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
+
+    if (error) {
+      console.warn('Supabase updateOrderStatus error:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Network error updating order status:', err);
     return false;
   }
 }
