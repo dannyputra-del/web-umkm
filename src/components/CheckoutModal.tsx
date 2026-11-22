@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CartItem, CustomerDetails, OrderType, StoreInfo } from '@/types';
+import { CartItem, CustomerDetails, StoreInfo } from '@/types';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -10,10 +10,10 @@ interface CheckoutModalProps {
   items: CartItem[];
   customer: CustomerDetails;
   onUpdateCustomer: (customer: CustomerDetails) => void;
-  onProceedToPayment: () => void;
+  onOrderViaWhatsApp: () => void;
+  // store tetap diterima dari page.tsx (kompatibilitas pemanggil),
+  // tapi tidak lagi dipakai di form — tidak ada lagi kartu pickup / Maps.
   store: StoreInfo;
-  deliveryFee?: number;
-  serviceFee?: number;
   storeIsOpen?: boolean;
 }
 
@@ -24,10 +24,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   items,
   customer,
   onUpdateCustomer,
-  onProceedToPayment,
-  store,
-  deliveryFee = 10000,
-  serviceFee = 2000,
+  onOrderViaWhatsApp,
   storeIsOpen = true,
 }) => {
   if (!isOpen) return null;
@@ -39,23 +36,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     0
   );
 
-  const ongkir = customer.orderType === 'delivery' ? deliveryFee : 0;
-  const total = subtotal + serviceFee + ongkir;
+  // Total hanya harga makanan (subtotal saja) — tanpa biaya layanan
+  // dan tanpa ongkir; keduanya dibicarakan langsung di chat WA.
+  const total = subtotal;
 
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
-  };
-
-  const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
-
-  const handleOrderTypeChange = (type: OrderType) => {
-    // Kosongkan nomor meja & alamat saat tipe berubah, jangan biarkan nilai basi.
-    onUpdateCustomer({
-      ...customer,
-      orderType: type,
-      tableNumber: '',
-      address: '',
-    });
   };
 
   const handleValidateAndProceed = (e: React.FormEvent) => {
@@ -71,12 +57,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       errors.phone =
         'Nomor WhatsApp tidak valid. Nomor harus diawali 08, 62, atau +62 dan diikuti angka 8 (contoh: 08123456789)';
     }
-    if (customer.orderType === 'dine_in' && !customer.tableNumber?.trim()) {
-      errors.tableNumber = 'Nomor meja wajib diisi jika makan di tempat';
-    }
-    if (customer.orderType === 'delivery' && !customer.address?.trim()) {
-      errors.address = 'Alamat pengantaran wajib diisi';
-    }
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -84,7 +64,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     setFormErrors({});
-    onProceedToPayment();
+    onOrderViaWhatsApp();
   };
 
   return (
@@ -96,7 +76,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <button className="back-arrow-btn" onClick={onBackToCart} title="Kembali ke Keranjang">
               ←
             </button>
-            <span>Data Pemesan & Pengantaran</span>
+            <span>Data Pemesan</span>
           </div>
           <button className="modal-close-btn" onClick={onClose} aria-label="Tutup">
             ✕
@@ -105,121 +85,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
         {/* Body Form */}
         <form onSubmit={handleValidateAndProceed} className="modal-body">
-          {/* Order Type Toggle */}
-          <div className="form-group">
-            <label className="form-label">Tipe Pemesanan:</label>
-            <div className="order-type-grid">
-              <button
-                type="button"
-                className={`order-type-card ${customer.orderType === 'dine_in' ? 'selected' : ''}`}
-                onClick={() => handleOrderTypeChange('dine_in')}
-              >
-                <span className="type-icon">🍽️</span>
-                <span className="type-title">Makan di Tempat</span>
-                <span className="type-subtitle">Dine-in Resto</span>
-              </button>
-
-              <button
-                type="button"
-                className={`order-type-card ${customer.orderType === 'takeaway' ? 'selected' : ''}`}
-                onClick={() => handleOrderTypeChange('takeaway')}
-              >
-                <span className="type-icon">🛍️</span>
-                <span className="type-title">Ambil Sendiri</span>
-                <span className="type-subtitle">Pickup / Kurir Sendiri</span>
-              </button>
-
-              <button
-                type="button"
-                className={`order-type-card ${customer.orderType === 'delivery' ? 'selected' : ''}`}
-                onClick={() => handleOrderTypeChange('delivery')}
-              >
-                <span className="type-icon">🛵</span>
-                <span className="type-title">Pesan Antar</span>
-                <span className="type-subtitle">Kurir ke Alamat</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Conditional Input: Dine-in Table Number */}
-          {customer.orderType === 'dine_in' && (
-            <div className="form-group highlight-box">
-              <label className="form-label">Nomor Meja Anda *</label>
-              <input
-                type="text"
-                placeholder="Cth: Meja 05 atau Meja VIP-2"
-                value={customer.tableNumber || ''}
-                onChange={(e) =>
-                  onUpdateCustomer({ ...customer, tableNumber: e.target.value })
-                }
-                className="form-input"
-              />
-              {formErrors.tableNumber && (
-                <span className="error-msg">{formErrors.tableNumber}</span>
-              )}
-            </div>
-          )}
-
-          {/* Conditional Info: Ambil Sendiri (Pickup) */}
-          {customer.orderType === 'takeaway' && (
-            <div className="form-group highlight-box pickup-info-card">
-              <div className="pickup-card-top">
-                <span className="pickup-badge-icon">📍</span>
-                <div>
-                  <strong className="pickup-store-title">Titik Pengambilan / Penjemputan Pesanan:</strong>
-                  <p className="pickup-store-name">{store.name}</p>
-                </div>
-              </div>
-              <p className="pickup-store-address">{store.address}</p>
-
-              <div className="pickup-action-row">
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-open-maps"
-                >
-                  🗺️ Buka Rute di Google Maps ↗
-                </a>
-                <button
-                  type="button"
-                  className="btn-copy-address"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(store.address);
-                    alert('Alamat toko berhasil disalin!');
-                  }}
-                >
-                  📋 Salin Alamat Toko
-                </button>
-              </div>
-
-              <span className="pickup-hint-note">
-                💡 <em>Anda bisa datang langsung ke toko untuk ambil pesanan, atau memesan kurir instan (GoSend / GrabExpress / Maxim) sendiri dengan titik jemput di atas setelah pesanan siap.</em>
-              </span>
-            </div>
-          )}
-
-          {/* Conditional Input: Pesan Antar (Delivery) */}
-          {customer.orderType === 'delivery' && (
-            <div className="form-group highlight-box">
-              <label className="form-label">Alamat Lengkap Pengiriman *</label>
-              <textarea
-                placeholder="Tuliskan nama jalan, no rumah, patokan..."
-                value={customer.address || ''}
-                onChange={(e) =>
-                  onUpdateCustomer({ ...customer, address: e.target.value })
-                }
-                className="form-textarea"
-              />
-              {formErrors.address && (
-                <span className="error-msg">{formErrors.address}</span>
-              )}
-              <span className="delivery-ongkir-note">
-                🛵 <strong>Ongkos Kirim:</strong> {formatRupiah(deliveryFee)} — sudah termasuk di Total Tagihan di bawah.
-              </span>
-            </div>
-          )}
-
           {/* Customer Personal Info */}
           <div className="form-group">
             <label className="form-label">Nama Pemesan *</label>
@@ -273,25 +138,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           <div className="summary-breakdown-card">
             <h5 className="breakdown-title">Ringkasan Biaya Pesanan</h5>
             <div className="breakdown-row">
-              <span>Subtotal ({items.reduce((s, i) => s + i.quantity, 0)} menu)</span>
+              <span>Total Harga Makanan ({items.reduce((s, i) => s + i.quantity, 0)} menu)</span>
               <span>{formatRupiah(subtotal)}</span>
-            </div>
-            <div className="breakdown-row">
-              <span>Biaya Layanan &amp; Pengemasan</span>
-              <span>{formatRupiah(serviceFee)}</span>
-            </div>
-            <div className="breakdown-row">
-              <span>
-                Ongkir {customer.orderType === 'delivery' ? '(Pesan Antar)' : '(Tanpa ongkir)'}
-              </span>
-              <span>
-                {customer.orderType === 'delivery' ? formatRupiah(deliveryFee) : 'Rp 0'}
-              </span>
             </div>
             <div className="breakdown-total-row">
               <span>Total Tagihan:</span>
               <span className="total-highlight">{formatRupiah(total)}</span>
             </div>
+            <span className="breakdown-note">
+              💬 Pembayaran dan pengiriman dibicarakan langsung di chat WhatsApp.
+            </span>
           </div>
 
           {/* Submit Button */}
@@ -302,9 +158,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               disabled={!storeIsOpen}
             >
               <span>
-                {storeIsOpen ? 'Lanjut ke Pilihan Pembayaran' : 'Toko sedang tutup'}
+                {storeIsOpen ? 'Pesan via WhatsApp' : 'Toko sedang tutup'}
               </span>
-              {storeIsOpen && <span>💳 →</span>}
+              {storeIsOpen && <span>💬 →</span>}
             </button>
             {!storeIsOpen && (
               <span className="error-msg" style={{ textAlign: 'center', marginTop: 8 }}>
@@ -327,153 +183,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           font-size: 1.1rem;
           color: #334155;
           margin-right: 6px;
-        }
-
-        .order-type-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-          margin-bottom: 4px;
-        }
-
-        .order-type-card {
-          background: #f8fafc;
-          border: 1.5px solid var(--border-strong);
-          border-radius: var(--radius-md);
-          padding: 10px 6px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          transition: all 0.2s ease;
-        }
-
-        .order-type-card.selected {
-          background: #fff7ed;
-          border-color: var(--primary);
-          box-shadow: 0 0 0 2px rgba(194, 65, 12, 0.2);
-        }
-
-        .type-icon {
-          font-size: 1.3rem;
-          margin-bottom: 4px;
-        }
-
-        .type-title {
-          font-size: 0.74rem;
-          font-weight: 700;
-          color: #0f172a;
-          line-height: 1.2;
-        }
-
-        .type-subtitle {
-          font-size: 0.65rem;
-          color: #64748b;
-          margin-top: 2px;
-        }
-
-        .highlight-box {
-          background: #f8fafc;
-          padding: 14px;
-          border-radius: var(--radius-md);
-          border: 1px solid var(--border-strong);
-        }
-
-        .pickup-info-card {
-          background: #f0fdf4;
-          border: 1.5px solid #bbf7d0;
-        }
-
-        .pickup-card-top {
-          display: flex;
-          align-items: flex-start;
-          gap: 10px;
-          margin-bottom: 6px;
-        }
-
-        .pickup-badge-icon {
-          font-size: 1.3rem;
-        }
-
-        .pickup-store-title {
-          font-size: 0.8rem;
-          color: #166534;
-          display: block;
-        }
-
-        .pickup-store-name {
-          font-size: 0.92rem;
-          font-weight: 800;
-          color: #0f172a;
-        }
-
-        .pickup-store-address {
-          font-size: 0.82rem;
-          color: #334155;
-          margin-left: 32px;
-          margin-bottom: 10px;
-          line-height: 1.4;
-        }
-
-        .pickup-action-row {
-          display: flex;
-          gap: 8px;
-          margin-left: 32px;
-          margin-bottom: 10px;
-          flex-wrap: wrap;
-        }
-
-        .btn-open-maps {
-          background: #3b82f6;
-          color: white;
-          text-decoration: none;
-          padding: 7px 12px;
-          border-radius: 8px;
-          font-size: 0.78rem;
-          font-weight: 700;
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          transition: background 0.2s ease;
-        }
-
-        .btn-open-maps:hover {
-          background: #2563eb;
-        }
-
-        .btn-copy-address {
-          background: #ffffff;
-          color: #334155;
-          border: 1px solid #cbd5e1;
-          padding: 7px 12px;
-          border-radius: 8px;
-          font-size: 0.78rem;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .btn-copy-address:hover {
-          background: #f1f5f9;
-        }
-
-        .pickup-hint-note {
-          display: block;
-          font-size: 0.75rem;
-          color: #15803d;
-          margin-left: 32px;
-          line-height: 1.4;
-        }
-
-        .delivery-ongkir-note {
-          display: block;
-          background: #fff7ed;
-          border: 1px solid #fed7aa;
-          color: #9a3412;
-          padding: 8px 12px;
-          border-radius: 8px;
-          font-size: 0.75rem;
-          margin-top: 8px;
-          line-height: 1.4;
         }
 
         .input-hint {
@@ -517,6 +226,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           margin-bottom: 6px;
         }
 
+        /* Nilai rupiah jangan terbelah baris di layar sempit (320px). */
+        .breakdown-row span:last-child,
+        .breakdown-total-row span:last-child {
+          white-space: nowrap;
+        }
+
         .breakdown-total-row {
           display: flex;
           justify-content: space-between;
@@ -531,6 +246,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         .total-highlight {
           color: var(--primary);
           font-size: 1.15rem;
+        }
+
+        .breakdown-note {
+          display: block;
+          font-size: 0.75rem;
+          color: #64748b;
+          margin-top: 8px;
+          line-height: 1.4;
         }
 
         .submit-section {
