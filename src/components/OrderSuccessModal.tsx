@@ -2,12 +2,17 @@
 
 import React from 'react';
 import { Order, StoreInfo } from '@/types';
+import { buildWhatsAppOrderUrl } from '@/lib/whatsappMessage';
 
 interface OrderSuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order | null;
   store: StoreInfo;
+  // Dipanggil saat tombol WA manual diklik (jalur cadangan popup diblokir);
+  // page.tsx lalu mengosongkan keranjang + menutup modal supaya checkout
+  // ulang tidak membuat nomor pesanan baru dari keranjang yang sama.
+  onWhatsAppSent?: () => void;
 }
 
 export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
@@ -15,6 +20,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   onClose,
   order,
   store,
+  onWhatsAppSent,
 }) => {
   if (!isOpen || !order) return null;
 
@@ -36,61 +42,10 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
     });
   };
 
-  // Generate WhatsApp Order Message
-  const generateWhatsAppMessage = () => {
-    const itemLines = order.items
-      .map(
-        (i) =>
-          `• ${i.product.name} (${i.quantity}x) = ${formatRupiah(i.product.price * i.quantity)}${
-            i.notes ? ` [Catatan: ${i.notes}]` : ''
-          }`
-      )
-      .join('\n');
-
-    const paymentText =
-      order.paymentMethod === 'qris'
-        ? 'QRIS Digital'
-        : order.paymentMethod === 'bank_transfer'
-        ? 'Transfer Bank'
-        : 'Tunai di Kasir';
-
-    const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
-
-    const orderTypeText =
-      order.customer.orderType === 'dine_in'
-        ? `Makan di Tempat (Meja: ${order.customer.tableNumber || '-'})`
-        : order.customer.orderType === 'takeaway'
-        ? `Ambil Sendiri / Pickup (Pesan Kurir Sendiri)\n📍 Titik Pickup: ${store.address}\n🗺️ Link Maps: ${mapsUrl}`
-        : `Pesan Antar (Alamat: ${order.customer.address || '-'})`;
-
-    const message = `Halo ${store.name}, saya baru saja memesan via Website Menu Online! 🍽️
-
-*NO PESANAN: ${order.orderNumber}*
-*Waktu Pesanan:* ${formatOrderTime(order.createdAt)}
-------------------------------
-*Nama:* ${order.customer.name}
-*No. WhatsApp:* ${order.customer.phone}
-*Tipe:* ${orderTypeText}
-${order.customer.notes ? `*Catatan Pembeli:* ${order.customer.notes}\n` : ''}
-*RINCIAN MENU:*
-${itemLines}
-
-------------------------------
-*Subtotal:* ${formatRupiah(order.subtotal)}
-*Biaya Layanan:* ${formatRupiah(order.serviceFee)}
-*Ongkir:* ${order.deliveryFee > 0 ? formatRupiah(order.deliveryFee) : 'Tanpa ongkir (Rp 0)'}
-*Total Pembayaran:* ${formatRupiah(order.total)}
-*Metode Bayar:* ${paymentText}
-*Status:* Menunggu konfirmasi via WhatsApp
-
-Mohon segera diproses ya, terima kasih banyak!`;
-
-    return encodeURIComponent(message);
-  };
-
-  const whatsappUrl = `https://wa.me/${store.whatsapp}?text=${generateWhatsAppMessage()}`;
-
-  const mapsUrl = store.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address ? `${store.name} ${store.address}` : store.name)}`;
+  // Pesan WA dibangun helper bersama (dipakai juga page.tsx saat buka WA
+  // langsung). Isi: hanya total harga makanan, tanpa Metode Bayar dan
+  // tanpa subtotal / biaya layanan / ongkir terpisah.
+  const whatsappUrl = buildWhatsAppOrderUrl(order, store);
 
   return (
     <div className="modal-overlay">
@@ -126,19 +81,11 @@ Mohon segera diproses ya, terima kasih banyak!`;
                 <span className="detail-val">{order.customer.name} ({order.customer.phone})</span>
               </div>
               <div className="detail-row">
-                <span className="detail-lbl">Layanan:</span>
-                <span className="detail-val">
-                  {order.customer.orderType === 'dine_in'
-                    ? `Makan di Tempat • ${order.customer.tableNumber}`
-                    : order.customer.orderType === 'takeaway'
-                    ? 'Ambil Sendiri (Pickup)'
-                    : `Pesan Antar • ${order.customer.address}`}
-                </span>
-              </div>
-              <div className="detail-row">
                 <span className="detail-lbl">Pembayaran:</span>
                 <span className="detail-val">
-                  {order.paymentMethod === 'qris'
+                  {order.paymentMethod === 'whatsapp'
+                    ? 'WhatsApp'
+                    : order.paymentMethod === 'qris'
                     ? 'QRIS Otomatis'
                     : order.paymentMethod === 'bank_transfer'
                     ? 'Transfer Bank'
@@ -173,54 +120,14 @@ Mohon segera diproses ya, terima kasih banyak!`;
 
             <div className="ticket-divider" />
 
-            {/* Rincian biaya lengkap */}
-            <div className="ticket-breakdown">
-              <div className="ticket-break-row">
-                <span>Subtotal</span>
-                <span>{formatRupiah(order.subtotal)}</span>
-              </div>
-              <div className="ticket-break-row">
-                <span>Biaya layanan &amp; pengemasan</span>
-                <span>{formatRupiah(order.serviceFee)}</span>
-              </div>
-              <div className="ticket-break-row">
-                <span>Ongkir</span>
-                <span>
-                  {order.deliveryFee > 0
-                    ? formatRupiah(order.deliveryFee)
-                    : 'Tanpa ongkir (Rp 0)'}
-                </span>
-              </div>
-            </div>
-
-            <div className="ticket-divider" />
-
             <div className="ticket-total-row">
-              <span className="total-lbl">Total Tagihan:</span>
+              <span className="total-lbl">Total Harga Makanan:</span>
               <span className="total-val">{formatRupiah(order.total)}</span>
             </div>
+            <span className="ticket-wa-note">
+              💬 Pembayaran dan pengiriman dibicarakan di chat WhatsApp.
+            </span>
           </div>
-
-          {/* Pickup Notice Card when customer chooses Takeaway */}
-          {order.customer.orderType === 'takeaway' && (
-            <div className="success-pickup-card">
-              <div className="pickup-title-row">
-                <span className="pickup-icon-pin">📍</span>
-                <div>
-                  <strong>Titik Penjemputan Toko (Pickup):</strong>
-                  <p className="pickup-store-sub">{store.name} • {store.address}</p>
-                </div>
-              </div>
-              <a
-                href={mapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-success-maps"
-              >
-                🗺️ Buka Rute Google Maps (Titik Jemput Kurir) ↗
-              </a>
-            </div>
-          )}
 
           {/* Quick Notice */}
           <div className="kitchen-status-pill">
@@ -235,6 +142,7 @@ Mohon segera diproses ya, terima kasih banyak!`;
               target="_blank"
               rel="noopener noreferrer"
               className="btn-send-whatsapp"
+              onClick={() => onWhatsAppSent?.()}
             >
               <span>📲 Kirim Bukti & Pesanan ke WhatsApp Toko</span>
             </a>
@@ -398,29 +306,18 @@ Mohon segera diproses ya, terima kasih banyak!`;
           margin-top: 2px;
         }
 
-        .ticket-breakdown {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          margin-bottom: 4px;
-        }
-
-        .ticket-break-row {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.8rem;
-          color: #64748b;
-        }
-
-        .ticket-break-row span:last-child {
-          font-weight: 700;
-          color: #334155;
-        }
-
         .ticket-total-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
+        }
+
+        .ticket-wa-note {
+          display: block;
+          font-size: 0.75rem;
+          color: #64748b;
+          margin-top: 8px;
+          line-height: 1.4;
         }
 
         .total-lbl {
@@ -433,54 +330,6 @@ Mohon segera diproses ya, terima kasih banyak!`;
           font-size: 1.15rem;
           font-weight: 800;
           color: var(--accent-green);
-        }
-
-        .success-pickup-card {
-          background: #f0fdf4;
-          border: 1.5px solid #bbf7d0;
-          border-radius: var(--radius-md);
-          padding: 12px 14px;
-          margin-bottom: 14px;
-          text-align: left;
-        }
-
-        .pickup-title-row {
-          display: flex;
-          align-items: flex-start;
-          gap: 8px;
-          font-size: 0.8rem;
-          color: #166534;
-        }
-
-        .pickup-icon-pin {
-          font-size: 1.2rem;
-        }
-
-        .pickup-store-sub {
-          font-size: 0.78rem;
-          color: #334155;
-          margin-top: 2px;
-          line-height: 1.35;
-        }
-
-        .btn-success-maps {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: #3b82f6;
-          color: white;
-          text-decoration: none;
-          font-size: 0.78rem;
-          font-weight: 700;
-          padding: 7px 12px;
-          border-radius: 8px;
-          margin-top: 8px;
-          margin-left: 28px;
-          transition: background 0.2s ease;
-        }
-
-        .btn-success-maps:hover {
-          background: #2563eb;
         }
 
         .kitchen-status-pill {
