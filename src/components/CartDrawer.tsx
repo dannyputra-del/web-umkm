@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CartItem, OrderType } from '@/types';
+import { CartItem } from '@/types';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -10,9 +10,6 @@ interface CartDrawerProps {
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onUpdateNotes: (productId: string, notes: string) => void;
   onProceedToCheckout: () => void;
-  serviceFee?: number;
-  deliveryFee?: number;
-  orderType?: OrderType;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -22,9 +19,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onUpdateQuantity,
   onUpdateNotes,
   onProceedToCheckout,
-  serviceFee = 2000,
-  deliveryFee = 0,
-  orderType = 'takeaway',
 }) => {
   if (!isOpen) return null;
 
@@ -33,8 +27,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     (sum, item) => sum + item.product.price * item.quantity,
     0
   );
-  const ongkir = orderType === 'delivery' ? deliveryFee : 0;
-  const total = subtotal + serviceFee + ongkir;
+  // Total hanya harga makanan (subtotal saja) — tanpa biaya layanan
+  // dan tanpa ongkir; keduanya dibicarakan langsung di chat WA.
+  const total = subtotal;
 
   const formatRupiah = (val: number) => {
     return 'Rp ' + val.toLocaleString('id-ID');
@@ -133,20 +128,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           <div className="modal-footer">
             <div className="footer-breakdown">
               <div className="footer-summary-row small">
-                <span className="summary-label">Subtotal</span>
+                <span className="summary-label">Total Harga Makanan</span>
                 <span className="summary-value">{formatRupiah(subtotal)}</span>
-              </div>
-              <div className="footer-summary-row small">
-                <span className="summary-label">Biaya layanan &amp; pengemasan</span>
-                <span className="summary-value">{formatRupiah(serviceFee)}</span>
-              </div>
-              <div className="footer-summary-row small">
-                <span className="summary-label">
-                  Ongkir {orderType === 'delivery' ? '(Pesan Antar)' : '(Tanpa ongkir)'}
-                </span>
-                <span className="summary-value">
-                  {orderType === 'delivery' ? formatRupiah(deliveryFee) : 'Rp 0'}
-                </span>
               </div>
               <div className="footer-summary-row">
                 <span className="summary-label">Total</span>
