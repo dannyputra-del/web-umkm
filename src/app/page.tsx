@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo, MerchantAccount } from '@/types';
+import { Product, CartItem, CustomerDetails, Order, StoreInfo, MerchantAccount } from '@/types';
 import { INITIAL_STORE_INFO, INITIAL_MERCHANTS, STORE_PRESETS } from '@/data/mockData';
 import { Header } from '@/components/Header';
 import { CategoryFilter, SortOption, PriceRangeOption, AvailabilityOption } from '@/components/CategoryFilter';
@@ -10,8 +10,8 @@ import { ProductDetailModal } from '@/components/ProductDetailModal';
 import { CartFloatingBar } from '@/components/CartFloatingBar';
 import { CartDrawer } from '@/components/CartDrawer';
 import { CheckoutModal } from '@/components/CheckoutModal';
-import { PaymentModal } from '@/components/PaymentModal';
 import { OrderSuccessModal } from '@/components/OrderSuccessModal';
+import { buildWhatsAppOrderUrl } from '@/lib/whatsappMessage';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import type { AdminDashboardGuard } from '@/components/AdminDashboard';
 import { Toast } from '@/components/Toast';
@@ -458,22 +458,18 @@ export default function HomePage() {
   // Modals Flow State
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
 
-  // Customer Checkout Form State
+  // Customer Checkout Form State — tanpa orderType: pembeli tidak lagi
+  // memilih tipe pesanan. orderType di model opsional hanya untuk
+  // kompatibilitas DB lama; createOrderInSupabase mengisi default DB
+  // ('dine_in') bila tidak dikirim, tanpa tampil di UI/WA.
   const [customerDetails, setCustomerDetails] = useState<CustomerDetails>({
     name: '',
     phone: '',
-    orderType: 'dine_in',
-    tableNumber: '',
-    address: '',
     notes: '',
   });
-
-  // Default kosong (bukan 'qris') supaya gerbang pilih metode di PaymentModal terasa.
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | ''>('');
 
   // Kategori diturunkan dari produk toko aktif (C2) — bukan CATEGORIES hardcode.
   const derivedCategories = useMemo(() => {
@@ -597,42 +593,21 @@ export default function HomePage() {
     setIsCartOpen(true);
   };
 
-  const handleProceedToPayment = () => {
-    setIsCheckoutOpen(false);
-    setIsPaymentOpen(true);
-  };
-
-  const handleBackToCheckout = () => {
-    setIsPaymentOpen(false);
-    setIsCheckoutOpen(true);
-  };
-
   const subtotal = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
     [cartItems]
   );
-  // Ongkir hanya bila pesan antar; biaya layanan dari toko (default 2000).
-  const deliveryFee = customerDetails.orderType === 'delivery' ? (storeInfo.deliveryFee ?? 10000) : 0;
-  const serviceFee = storeInfo.serviceFee ?? 2000;
-  const totalBill = subtotal + serviceFee + deliveryFee;
+  // Total hanya harga makanan (subtotal saja) — tanpa biaya layanan dan
+  // tanpa ongkir; keduanya dibicarakan langsung di chat WA.
 
-  // Bukti bayar opsional dari PaymentModal (E7): {payerName, paidAt}.
-  // PaymentModal meneruskan bukti itu lewat onConfirmOrder(proof).
-  const handleConfirmOrder = async (proof?: { payerName?: string; paidAt?: string }) => {
-    if (!selectedPaymentMethod) {
-      alert('Pilih metode pembayaran dulu.');
-      return;
-    }
+  // Pesan via WhatsApp langsung dari CheckoutModal.
+  // URUTAN PENTING: bangun nomor pesanan + pesan WA dan buka WA dengan
+  // window.open SECARA SINKRON di klik yang sama, SEBELUM await apa pun —
+  // supaya tidak diblokir popup blocker. Simpan ke Supabase baru jalan
+  // sesudahnya di belakang; WA sudah terbuka jadi order di WA tetap jalan
+  // walau simpan gagal.
+  const handleOrderViaWhatsApp = async () => {
     if (cartItems.length === 0) return;
-
-    const paymentProofNote =
-      proof && (proof.payerName || proof.paidAt)
-        ? `Bukti bayar: ${proof.payerName ? `pengirim ${proof.payerName}` : ''}${proof.payerName && proof.paidAt ? ', ' : ''}${proof.paidAt ? `jam ${proof.paidAt}` : ''}`
-        : '';
-    const orderCustomer: CustomerDetails = {
-      ...customerDetails,
-      notes: [customerDetails.notes, paymentProofNote].filter(Boolean).join(' | ') || undefined,
-    };
 
     const newOrderNumber = `#JM-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -641,61 +616,102 @@ export default function HomePage() {
       orderNumber: newOrderNumber,
       createdAt: new Date().toISOString(),
       items: [...cartItems],
-      customer: orderCustomer,
-      paymentMethod: selectedPaymentMethod,
+      customer: { ...customerDetails },
+      paymentMethod: 'whatsapp',
       subtotal,
-      deliveryFee,
-      serviceFee,
-      total: subtotal + deliveryFee + serviceFee,
+      deliveryFee: 0,
+      serviceFee: 0,
+      total: subtotal,
       status: 'pending',
     };
 
-    // Simpan dulu ke Supabase; bila gagal, JANGAN kosongkan keranjang /
-    // tampilkan sukses — beri error dan biarkan pembeli coba lagi.
+    // Simpan order ke feed lokal + kurangi stok (dipakai jalur sukses dan
+    // jalur cadangan supaya order tidak hilang bila Supabase gagal).
+    const applyOrderLocally = () => {
+      // Kurangi stok produk yang dipesan (min 0; habis bila stok jadi 0).
+      const orderedQty = new Map<string, number>();
+      cartItems.forEach((item) =>
+        orderedQty.set(item.product.id, (orderedQty.get(item.product.id) || 0) + item.quantity)
+      );
+      const updatedProducts = products.map((p) => {
+        const qty = orderedQty.get(p.id);
+        if (qty == null || p.stock == null) return p;
+        const newStock = Math.max(0, p.stock - qty);
+        return { ...p, stock: newStock, isAvailable: newStock > 0 };
+      });
+      const changedProducts = updatedProducts.filter(
+        (p, i) => p.stock !== products[i].stock || p.isAvailable !== products[i].isAvailable
+      );
+      setProducts(updatedProducts);
+      changedProducts.forEach((p) => {
+        upsertProductToSupabase(p, activeStoreSlug).catch((e) => console.warn(e));
+      });
+
+      // Save to orders feed (visible in Admin Dashboard) + persist lokal.
+      setOrders((prev) => {
+        const updated = [newOrder, ...prev];
+        try {
+          localStorage.setItem('umkm_orders', JSON.stringify(updated));
+        } catch (e) {
+          console.warn('LocalStorage save orders error:', e);
+        }
+        return updated;
+      });
+    };
+
+    // 1) Buka WA dulu, sinkron, sebelum await apa pun.
+    const waUrl = buildWhatsAppOrderUrl(newOrder, storeInfo);
+    const waWindow = window.open(waUrl, '_blank');
+
+    // 2) Cadangan bila popup diblokir: tampilkan OrderSuccessModal dengan
+    // tombol WA manual; keranjang TIDAK dikosongkan dulu supaya pembeli
+    // masih bisa ubah / batalkan sebelum WA terkirim.
+    if (!waWindow) {
+      setCompletedOrder(newOrder);
+      setIsCheckoutOpen(false);
+      setIsSuccessOpen(true);
+      // Tetap catat order di belakang (best effort) supaya dashboard
+      // punya catatan; kegagalan simpan tidak menghalangi tombol WA manual.
+      createOrderInSupabase(newOrder, activeStoreSlug).catch((e) =>
+        console.warn(e)
+      );
+      // Samakan dengan jalur sukses: catat order ke feed lokal +
+      // localStorage dan kurangi stok, supaya order tidak hilang bila
+      // Supabase gagal. Keranjang tetap utuh sampai tombol WA manual diklik.
+      applyOrderLocally();
+      return;
+    }
+
+    // 3) WA sudah terbuka: tutup checkout, lalu simpan order di belakang.
+    setIsCheckoutOpen(false);
+
     const saved = await createOrderInSupabase(newOrder, activeStoreSlug).catch((e) => {
       console.warn(e);
       return false;
     });
     if (!saved) {
-      alert('Pesanan gagal tersimpan. Periksa koneksi lalu coba lagi — keranjang Anda masih utuh.');
-      return;
+      // WA sudah terbuka dan order sudah di tangan toko lewat WA, jadi
+      // jangan batalkan / jangan minta pesan ulang (bisa duplikat di WA).
+      // Beri tahu pembeli untuk konfirmasi di chat WA saja.
+      alert(
+        'Pesanan Anda sudah terkirim ke WhatsApp toko, tapi catatan di sistem gagal tersimpan. Mohon konfirmasi pesanan Anda di chat WhatsApp tersebut ya.'
+      );
     }
 
-    // Kurangi stok produk yang dipesan (min 0; habis bila stok jadi 0).
-    const orderedQty = new Map<string, number>();
-    cartItems.forEach((item) =>
-      orderedQty.set(item.product.id, (orderedQty.get(item.product.id) || 0) + item.quantity)
-    );
-    const updatedProducts = products.map((p) => {
-      const qty = orderedQty.get(p.id);
-      if (qty == null || p.stock == null) return p;
-      const newStock = Math.max(0, p.stock - qty);
-      return { ...p, stock: newStock, isAvailable: newStock > 0 };
-    });
-    const changedProducts = updatedProducts.filter(
-      (p, i) => p.stock !== products[i].stock || p.isAvailable !== products[i].isAvailable
-    );
-    setProducts(updatedProducts);
-    changedProducts.forEach((p) => {
-      upsertProductToSupabase(p, activeStoreSlug).catch((e) => console.warn(e));
-    });
-
-    // Save to orders feed (visible in Admin Dashboard) + persist lokal.
-    setOrders((prev) => {
-      const updated = [newOrder, ...prev];
-      try {
-        localStorage.setItem('umkm_orders', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('LocalStorage save orders error:', e);
-      }
-      return updated;
-    });
+    // Catat order ke feed lokal + kurangi stok (sama seperti jalur cadangan).
+    applyOrderLocally();
     setCompletedOrder(newOrder);
 
-    // Close payment modal and clear cart
-    setIsPaymentOpen(false);
-    setIsSuccessOpen(true);
+    // Keranjang baru dikosongkan sesudah WA terbuka — order sudah jalan di WA.
     setCartItems([]);
+  };
+
+  // Tombol WA manual di OrderSuccessModal (jalur cadangan popup diblokir):
+  // WA sudah diklik, jadi keranjang dikosongkan dan modal ditutup supaya
+  // checkout ulang tidak membuat nomor pesanan baru dari keranjang yang sama.
+  const handleWhatsAppSentFromSuccess = () => {
+    setCartItems([]);
+    setIsSuccessOpen(false);
   };
 
   // Admin Handlers — tambah / ubah produk: Supabase DULU, state lokal HANYA
@@ -984,7 +1000,7 @@ export default function HomePage() {
               <div className="promo-callout-strip">
                 <span className="sparkle-icon">✨</span>
                 <span className="promo-text">
-                  <strong>Pesan Langsung Tanpa Antri!</strong> Masukkan menu pilihan ke keranjang, konfirmasi meja/alamat, dan pesanan langsung dimasak.
+                  <strong>Pesan Langsung Tanpa Antri!</strong> Masukkan menu pilihan ke keranjang, isi data pemesan, dan pesanan langsung dimasak.
                 </span>
               </div>
 
@@ -1041,9 +1057,6 @@ export default function HomePage() {
                 items={cartItems}
                 onOpenCart={() => setIsCartOpen(true)}
                 onClearCart={() => setCartItems([])}
-                serviceFee={serviceFee}
-                deliveryFee={storeInfo.deliveryFee ?? 10000}
-                orderType={customerDetails.orderType}
               />
 
               {/* Detail produk (D1, D2) */}
@@ -1062,9 +1075,6 @@ export default function HomePage() {
                 onUpdateQuantity={handleUpdateQuantity}
                 onUpdateNotes={handleUpdateNotes}
                 onProceedToCheckout={handleProceedToCheckout}
-                serviceFee={serviceFee}
-                deliveryFee={storeInfo.deliveryFee ?? 10000}
-                orderType={customerDetails.orderType}
               />
 
               <CheckoutModal
@@ -1074,27 +1084,9 @@ export default function HomePage() {
                 items={cartItems}
                 customer={customerDetails}
                 onUpdateCustomer={setCustomerDetails}
-                onProceedToPayment={handleProceedToPayment}
+                onOrderViaWhatsApp={handleOrderViaWhatsApp}
                 store={storeInfo}
-                deliveryFee={storeInfo.deliveryFee ?? 10000}
-                serviceFee={serviceFee}
                 storeIsOpen={storeInfo.isOpen}
-              />
-
-              <PaymentModal
-                isOpen={isPaymentOpen}
-                onClose={() => setIsPaymentOpen(false)}
-                onBackToCheckout={handleBackToCheckout}
-                totalAmount={totalBill}
-                amount={totalBill}
-                store={{
-                  name: storeInfo.name,
-                  qrisImageUrl: storeInfo.qrisImageUrl,
-                  bankAccounts: storeInfo.bankAccounts,
-                }}
-                selectedPayment={selectedPaymentMethod as PaymentMethod}
-                onSelectPayment={setSelectedPaymentMethod}
-                onConfirmOrder={handleConfirmOrder}
               />
 
               <OrderSuccessModal
@@ -1102,6 +1094,7 @@ export default function HomePage() {
                 onClose={() => setIsSuccessOpen(false)}
                 order={completedOrder}
                 store={storeInfo}
+                onWhatsAppSent={handleWhatsAppSentFromSuccess}
               />
             </>
           )}
