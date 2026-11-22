@@ -21,12 +21,16 @@ export interface CartItem {
 
 export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 
-export type PaymentMethod = 'qris' | 'bank_transfer' | 'cash';
+export type PaymentMethod = 'qris' | 'bank_transfer' | 'cash' | 'whatsapp';
 
 export interface CustomerDetails {
   name: string;
   phone: string;
-  orderType: OrderType;
+  // orderType OPSIONAL, hanya kompatibilitas model/DB lama — pembeli
+  // tidak lagi memilih tipe pesanan di UI dan tipe tidak dikirim ke WA.
+  // Kolom DB order_type tetap NOT NULL DEFAULT 'dine_in' (tanpa migrasi);
+  // bila tidak dikirim, supabaseService mengisi default itu.
+  orderType?: OrderType;
   tableNumber?: string;
   address?: string;
   notes?: string;
