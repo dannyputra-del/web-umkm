@@ -1,22 +1,65 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Product, StoreInfo, Order } from '@/types';
 import { ImageDropzone } from './ImageDropzone';
 import { buatNamaFileUnik } from '@/lib/storageService';
 import { deleteProductFromSupabase, updateOrderStatusInSupabase } from '@/lib/supabaseService';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog';
+
+// Guard yang didaftarkan dashboard ke halaman (page.tsx) supaya pindah mode
+// bisa dicek dulu: ada perubahan belum disimpan atau tidak, dan kalau ada,
+// halaman bisa minta dashboard menyimpan / membuang perubahan itu.
+export interface AdminDashboardGuard {
+  hasUnsavedChanges: () => boolean;
+  saveUnsavedChanges: () => Promise<boolean>;
+  discardUnsavedChanges: () => void;
+}
+
+export type ToastKind = 'success' | 'error';
+
+// Isian kosong form tambah produk — dipakai untuk isi awal, reset, dan
+// penanda dirty (form dianggap berubah bila isinya beda dari ini).
+const EMPTY_PRODUCT_FORM = {
+  name: '',
+  category: 'Lauk Utama',
+  price: '',
+  originalPrice: '',
+  description: '',
+  image: '',
+  badge: '',
+  isAvailable: true,
+  stock: '10',
+};
+
+const productToEditForm = (prod: Product) => ({
+  name: prod.name,
+  category: prod.category,
+  price: prod.price.toString(),
+  originalPrice: prod.originalPrice ? prod.originalPrice.toString() : '',
+  description: prod.description || '',
+  image: prod.image || '',
+  badge: prod.badge || '',
+  isAvailable: prod.isAvailable,
+  stock: (prod.stock ?? 10).toString(),
+});
 
 interface AdminDashboardProps {
   store: StoreInfo;
   onUpdateStore: (store: StoreInfo) => void | boolean | Promise<boolean>;
   products: Product[];
-  onAddProduct: (newProduct: Product) => void;
-  onUpdateProduct?: (product: Product) => void;
+  onAddProduct: (newProduct: Product) => void | boolean | Promise<boolean>;
+  onUpdateProduct?: (product: Product) => void | boolean | Promise<boolean>;
   onDeleteProduct: (id: string) => void;
   onToggleAvailability: (id: string) => void;
   orders: Order[];
   onUpdateOrderStatus: (orderId: string, status: Order['status']) => void;
   onSwitchToCustomerView: () => void;
+  // Popup kecil sukses/gagal — ditampilkan halaman supaya tetap terlihat
+  // walau pemilik pindah mode sesudah simpan.
+  notify: (kind: ToastKind, message: string) => void;
+  guardRef?: { current: AdminDashboardGuard | null };
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -30,6 +73,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   orders,
   onUpdateOrderStatus,
   onSwitchToCustomerView,
+  notify,
+  guardRef,
+  onDirtyChange,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<'products' | 'orders' | 'settings'>('products');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -52,32 +98,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleOpenEditProduct = (prod: Product) => {
     setEditingProductId(prod.id);
-    setEditFormData({
-      name: prod.name,
-      category: prod.category,
-      price: prod.price.toString(),
-      originalPrice: prod.originalPrice ? prod.originalPrice.toString() : '',
-      description: prod.description || '',
-      image: prod.image || '',
-      badge: prod.badge || '',
-      isAvailable: prod.isAvailable,
-      stock: (prod.stock ?? 10).toString(),
-    });
+    setEditFormData(productToEditForm(prod));
     setEditFormError('');
     setIsEditModalOpen(true);
   };
 
-  const handleSaveEditProduct = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Simpan edit produk: TUNGGU Supabase dulu (lewat onUpdateProduct).
+  // Popup sukses hanya bila simpan benar-benar berhasil; bila gagal, modal
+  // tetap terbuka dan muncul popup error. Dipakai juga oleh dialog
+  // "Perubahan belum disimpan" supaya jalurnya satu.
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  const saveEditProduct = async (): Promise<boolean> => {
+    setEditFormError('');
     if (!editFormData.name.trim() || !editFormData.price.trim()) {
       setEditFormError('Nama menu dan harga wajib diisi!');
-      return;
+      return false;
     }
 
     const priceNum = parseInt(editFormData.price, 10);
     if (isNaN(priceNum) || priceNum <= 0) {
       setEditFormError('Harga harus berupa angka valid!');
-      return;
+      return false;
     }
 
     let originalPriceNum: number | undefined;
@@ -85,21 +127,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       originalPriceNum = parseFloat(editFormData.originalPrice);
       if (isNaN(originalPriceNum)) {
         setEditFormError('Harga coret harus berupa angka valid!');
-        return;
+        return false;
       }
       if (originalPriceNum <= priceNum) {
         setEditFormError('Harga coret harus lebih besar dari harga jual!');
-        return;
+        return false;
       }
     }
 
     const stockNum = parseInt(editFormData.stock, 10);
     if (isNaN(stockNum) || stockNum < 0) {
       setEditFormError('Stok harus berupa angka 0 atau lebih!');
-      return;
+      return false;
     }
 
-    if (!editingProductId) return;
+    if (!editingProductId) return false;
 
     const original = products.find((p) => p.id === editingProductId);
     const updatedProd: Product = {
@@ -117,17 +159,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       stock: stockNum,
     };
 
-    if (onUpdateProduct) {
-      onUpdateProduct(updatedProd);
+    if (!onUpdateProduct) return false;
+    setIsSavingProduct(true);
+    let hasil: unknown;
+    try {
+      hasil = await onUpdateProduct(updatedProd);
+    } catch {
+      hasil = false;
+    }
+    setIsSavingProduct(false);
+    if (hasil !== true) {
+      notify('error', 'Gagal menyimpan perubahan menu ke Supabase. Perubahan belum tersimpan, coba lagi.');
+      return false;
     }
     setIsEditModalOpen(false);
     setEditingProductId(null);
+    notify('success', 'Perubahan telah disimpan');
+    return true;
+  };
+
+  const handleSaveEditProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveEditProduct();
   };
 
   // Store Personalization Draft State
   const [storeDraft, setStoreDraft] = useState<StoreInfo>(store);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
-  const [saveErrorMsg, setSaveErrorMsg] = useState('');
+  const [isSavingStore, setIsSavingStore] = useState(false);
 
   // Draf ikut data toko terbaru: bila data Supabase datang belakangan dan
   // prop store berubah apa pun isinya, isi ulang draf supaya tidak basi.
@@ -163,37 +221,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return '';
   };
 
-  const handleSaveStore = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaveErrorMsg('');
-    setSaveSuccessMsg('');
+  // Simpan profil toko: TUNGGU Supabase dulu (lewat onUpdateStore).
+  // Popup sukses ("Perubahan telah disimpan") hanya bila simpan benar-benar
+  // berhasil; bila gagal, muncul popup error dan draf tetap dianggap belum
+  // tersimpan. Dipakai juga oleh dialog "Perubahan belum disimpan" supaya
+  // jalurnya satu dengan tombol Simpan biasa.
+  const saveStoreDraft = async (): Promise<boolean> => {
     const err = validateStoreDraft(storeDraft);
     if (err) {
-      setSaveErrorMsg(err);
-      return;
+      notify('error', err);
+      return false;
     }
+    setIsSavingStore(true);
     let hasil: unknown;
     try {
       hasil = await onUpdateStore(storeDraft);
     } catch {
       hasil = false;
     }
-    if (hasil === false) {
-      setSaveErrorMsg('Gagal menyimpan ke Supabase. Perubahan belum tersimpan di cloud. Coba lagi.');
-      return;
+    setIsSavingStore(false);
+    if (hasil !== true) {
+      notify('error', 'Gagal menyimpan ke Supabase. Perubahan belum tersimpan di cloud. Coba lagi.');
+      return false;
     }
-    if (hasil === true) {
-      setSaveSuccessMsg('✓ Perubahan profil & tampilan web berhasil disimpan!');
-    } else {
-      // Pemanggil (page.tsx) belum mengembalikan status simpan (void):
-      // sukses localStorage tidak bisa dipastikan untuk Supabase di sini.
-      setSaveSuccessMsg(
-        '✓ Perubahan tersimpan di perangkat ini. Status simpan cloud belum terverifikasi — menunggu sambungan integrasi.'
-      );
-    }
-    setTimeout(() => {
-      setSaveSuccessMsg('');
-    }, 4000);
+    notify('success', 'Perubahan telah disimpan');
+    return true;
+  };
+
+  const handleSaveStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveStoreDraft();
   };
 
   // Rekening bank toko (bankAccounts): tambah / ubah / hapus baris
@@ -267,34 +324,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Form State for Adding New Product Card
-  const [formData, setFormData] = useState({
-    name: '',
-    category: 'Lauk Utama',
-    price: '',
-    originalPrice: '',
-    description: '',
-    image: '',
-    badge: '',
-    isAvailable: true,
-    stock: '10',
-  });
+  const [formData, setFormData] = useState({ ...EMPTY_PRODUCT_FORM });
 
   const [formError, setFormError] = useState('');
 
   // Kategori yang sudah dipakai produk toko ini (untuk datalist, bukan hardcode)
   const productCategories = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
 
-  const handleCreateProduct = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Simpan menu baru: TUNGGU Supabase dulu (lewat onAddProduct). Popup
+  // sukses hanya bila simpan benar-benar berhasil; bila gagal, modal tetap
+  // terbuka dan muncul popup error. Dipakai juga oleh dialog "Perubahan
+  // belum disimpan" supaya jalurnya satu.
+  const saveAddProduct = async (): Promise<boolean> => {
     if (!formData.name.trim() || !formData.price.trim()) {
       setFormError('Nama menu dan harga wajib diisi!');
-      return;
+      return false;
     }
 
     const priceNum = parseInt(formData.price, 10);
     if (isNaN(priceNum) || priceNum <= 0) {
       setFormError('Harga harus berupa angka valid!');
-      return;
+      return false;
     }
 
     let originalPriceNum: number | undefined;
@@ -302,18 +352,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       originalPriceNum = parseFloat(formData.originalPrice);
       if (isNaN(originalPriceNum)) {
         setFormError('Harga coret harus berupa angka valid!');
-        return;
+        return false;
       }
       if (originalPriceNum <= priceNum) {
         setFormError('Harga coret harus lebih besar dari harga jual!');
-        return;
+        return false;
       }
     }
 
     const stockNum = parseInt(formData.stock, 10);
     if (isNaN(stockNum) || stockNum < 0) {
       setFormError('Stok harus berupa angka 0 atau lebih!');
-      return;
+      return false;
     }
 
     const newProd: Product = {
@@ -331,20 +381,156 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       stock: stockNum,
     };
 
-    onAddProduct(newProd);
-    setFormData({
-      name: '',
-      category: 'Lauk Utama',
-      price: '',
-      originalPrice: '',
-      description: '',
-      image: '',
-      badge: '',
-      isAvailable: true,
-      stock: '10',
-    });
+    setIsSavingProduct(true);
+    let hasil: unknown;
+    try {
+      hasil = await onAddProduct(newProd);
+    } catch {
+      hasil = false;
+    }
+    setIsSavingProduct(false);
+    if (hasil !== true) {
+      notify('error', 'Gagal menyimpan menu baru ke Supabase. Menu belum tersimpan, coba lagi.');
+      return false;
+    }
+    setFormData({ ...EMPTY_PRODUCT_FORM });
     setFormError('');
     setIsAddModalOpen(false);
+    notify('success', 'Perubahan telah disimpan');
+    return true;
+  };
+
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveAddProduct();
+  };
+
+  // ---- Perubahan belum disimpan (dirty) ----
+  // Dirty = draf beda dengan data terakhir yang tersimpan / dimuat.
+  // - Profil toko: storeDraft vs store (prop store hanya berubah bila simpan
+  //   ke Supabase berhasil, jadi gagal simpan tetap dirty).
+  // - Tambah produk: modal tambah terbuka dan isiannya beda dari kosong.
+  // - Edit produk: modal edit terbuka dan isiannya beda dari produk aslinya.
+  // Pindah tab di dalam dashboard (Produk / Pesanan / Pengaturan) TIDAK
+  // membuang form — state draf dan modal tetap hidup di komponen ini —
+  // jadi pindah tab internal tidak perlu dialog. Yang dijaga: pindah mode
+  // di header / tombol "Lihat Web Pembeli" (lewat guardRef ke page.tsx),
+  // tutup tab browser (beforeunload di page.tsx), dan tutup modal produk
+  // (dialog lokal di bawah).
+  const storeDirty = useMemo(
+    () => JSON.stringify(storeDraft) !== JSON.stringify(store),
+    [storeDraft, store]
+  );
+  const addDirty =
+    isAddModalOpen && JSON.stringify(formData) !== JSON.stringify(EMPTY_PRODUCT_FORM);
+  const editDirty = useMemo(() => {
+    if (!isEditModalOpen || !editingProductId) return false;
+    const original = products.find((p) => p.id === editingProductId);
+    if (!original) return false;
+    return (
+      editFormData.name !== original.name ||
+      editFormData.category !== original.category ||
+      editFormData.price !== original.price.toString() ||
+      editFormData.originalPrice !== (original.originalPrice ? original.originalPrice.toString() : '') ||
+      editFormData.description !== (original.description || '') ||
+      editFormData.image !== (original.image || '') ||
+      editFormData.badge !== (original.badge || '') ||
+      editFormData.isAvailable !== original.isAvailable ||
+      editFormData.stock !== (original.stock ?? 10).toString()
+    );
+  }, [isEditModalOpen, editingProductId, editFormData, products]);
+  const isDirty = storeDirty || addDirty || editDirty;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  // Simpan semua yang dirty, urut: profil toko, edit produk, tambah produk.
+  // Berhenti di kegagalan pertama supaya tidak ada yang tersimpan setengah.
+  const saveUnsavedChanges = async (): Promise<boolean> => {
+    if (storeDirty) {
+      const ok = await saveStoreDraft();
+      if (!ok) return false;
+    }
+    if (editDirty) {
+      const ok = await saveEditProduct();
+      if (!ok) return false;
+    }
+    if (addDirty) {
+      const ok = await saveAddProduct();
+      if (!ok) return false;
+    }
+    return true;
+  };
+
+  // Buang semua perubahan yang belum disimpan, kembali ke data tersimpan.
+  const discardUnsavedChanges = () => {
+    setStoreDraft(store);
+    setFormData({ ...EMPTY_PRODUCT_FORM });
+    setFormError('');
+    setIsAddModalOpen(false);
+    setEditFormError('');
+    setIsEditModalOpen(false);
+    setEditingProductId(null);
+  };
+
+  // Daftarkan guard ke halaman; diperbarui tiap ada yang berubah supaya
+  // halaman selalu memanggil fungsi dengan isi state terbaru.
+  useEffect(() => {
+    if (!guardRef) return;
+    guardRef.current = {
+      hasUnsavedChanges: () => isDirty,
+      saveUnsavedChanges,
+      discardUnsavedChanges,
+    };
+    return () => {
+      guardRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guardRef, isDirty, storeDraft, formData, editFormData, isAddModalOpen, isEditModalOpen, editingProductId, store, products]);
+
+  // Tutup modal produk: bila isiannya dirty, tanya dulu lewat dialog lokal.
+  const [pendingModalClose, setPendingModalClose] = useState<'add' | 'edit' | null>(null);
+  const [savingBeforeModalClose, setSavingBeforeModalClose] = useState(false);
+
+  const requestCloseAddModal = () => {
+    if (addDirty) {
+      setPendingModalClose('add');
+    } else {
+      setIsAddModalOpen(false);
+    }
+  };
+
+  const requestCloseEditModal = () => {
+    if (editDirty) {
+      setPendingModalClose('edit');
+    } else {
+      setIsEditModalOpen(false);
+    }
+  };
+
+  const handleModalCloseKeluar = () => {
+    const which = pendingModalClose;
+    setPendingModalClose(null);
+    if (which === 'add') {
+      setFormData({ ...EMPTY_PRODUCT_FORM });
+      setFormError('');
+      setIsAddModalOpen(false);
+    } else if (which === 'edit') {
+      setEditFormError('');
+      setIsEditModalOpen(false);
+      setEditingProductId(null);
+    }
+  };
+
+  const handleModalCloseSimpan = async () => {
+    setSavingBeforeModalClose(true);
+    const ok = pendingModalClose === 'add' ? await saveAddProduct() : await saveEditProduct();
+    setSavingBeforeModalClose(false);
+    // Bila simpan berhasil, modal sudah ditutup oleh fungsi simpan.
+    // Bila gagal, dialog tetap terbuka supaya pemilik bisa coba lagi
+    // atau pilih Keluar; popup error sudah tampil.
+    if (ok) setPendingModalClose(null);
   };
 
   const formatRupiah = (val: number) => {
@@ -696,18 +882,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               👁️ Lihat Hasil di Tampilan Pembeli
             </button>
           </div>
-
-          {saveSuccessMsg && (
-            <div className="save-toast-banner">
-              <span>{saveSuccessMsg}</span>
-            </div>
-          )}
-
-          {saveErrorMsg && (
-            <div className="save-error-banner">
-              <span>{saveErrorMsg}</span>
-            </div>
-          )}
 
           <div className="personalization-grid">
             {/* Form Column */}
@@ -1138,8 +1312,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   ↩️ Kembalikan Perubahan
                 </button>
-                <button type="submit" className="btn-save-personalization">
-                  💾 Simpan Perubahan Toko
+                <button type="submit" className="btn-save-personalization" disabled={isSavingStore}>
+                  {isSavingStore ? '⏳ Menyimpan…' : '💾 Simpan Perubahan Toko'}
                 </button>
               </div>
             </form>
@@ -1244,7 +1418,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* MODAL ADD NEW PRODUCT CARD */}
       {isAddModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
+        <div className="modal-overlay" onClick={requestCloseAddModal}>
           <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">
@@ -1253,7 +1427,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
               <button
                 className="modal-close-btn"
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={requestCloseAddModal}
               >
                 ✕
               </button>
@@ -1391,12 +1565,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   className="btn-cancel"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={requestCloseAddModal}
                 >
                   Batal
                 </button>
-                <button type="submit" className="btn-save-new">
-                  Simpan & Tambah ke Etalase
+                <button type="submit" className="btn-save-new" disabled={isSavingProduct}>
+                  {isSavingProduct ? '⏳ Menyimpan…' : 'Simpan & Tambah ke Etalase'}
                 </button>
               </div>
             </form>
@@ -1406,7 +1580,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* MODAL EDIT PRODUCT CARD */}
       {isEditModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
+        <div className="modal-overlay" onClick={requestCloseEditModal}>
           <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">
@@ -1415,7 +1589,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
               <button
                 className="modal-close-btn"
-                onClick={() => setIsEditModalOpen(false)}
+                onClick={requestCloseEditModal}
               >
                 ✕
               </button>
@@ -1554,18 +1728,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   className="btn-cancel"
-                  onClick={() => setIsEditModalOpen(false)}
+                  onClick={requestCloseEditModal}
                 >
                   Batal
                 </button>
-                <button type="submit" className="btn-save-new">
-                  Simpan Perubahan Menu
+                <button type="submit" className="btn-save-new" disabled={isSavingProduct}>
+                  {isSavingProduct ? '⏳ Menyimpan…' : 'Simpan Perubahan Menu'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Dialog "Perubahan belum disimpan" untuk tutup modal produk */}
+      <UnsavedChangesDialog
+        open={pendingModalClose !== null}
+        saving={savingBeforeModalClose}
+        onKeluar={handleModalCloseKeluar}
+        onSimpan={handleModalCloseSimpan}
+      />
 
       <style jsx>{`
         .admin-container {
@@ -1997,20 +2179,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           font-weight: 600;
         }
 
-        .save-error-banner {
-          background: #fef2f2;
-          border: 1px solid #fca5a5;
-          color: #991b1b;
-          padding: 12px 18px;
-          border-radius: var(--radius-md);
-          font-weight: 700;
-          font-size: 0.9rem;
-          margin-bottom: 20px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
         .bank-account-row {
           display: grid;
           grid-template-columns: 1fr 1.2fr 1.2fr auto;
@@ -2110,21 +2278,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         .empty-orders-box span {
           font-size: 3rem;
-        }
-
-        .save-toast-banner {
-          background: #ecfdf5;
-          border: 1px solid #6ee7b7;
-          color: #065f46;
-          padding: 12px 18px;
-          border-radius: var(--radius-md);
-          font-weight: 700;
-          font-size: 0.9rem;
-          margin-bottom: 20px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          animation: slideDown 0.3s ease;
         }
 
         .personalization-grid {
