@@ -258,7 +258,11 @@ export async function createOrderInSupabase(order: Order, storeSlug: string): Pr
       created_at: order.createdAt,
       customer_name: order.customer.name,
       customer_phone: order.customer.phone,
-      order_type: order.customer.orderType,
+      // order_type: kolom DB NOT NULL DEFAULT 'dine_in' (tanpa migrasi).
+      // Pembeli tidak lagi memilih tipe — bila order baru tidak membawa
+      // orderType, kirim default 'dine_in' HANYA untuk kompatibilitas DB,
+      // bukan tipe yang dipilih pembeli; tidak tampil di UI maupun WA.
+      order_type: order.customer.orderType ?? 'dine_in',
       table_number: order.customer.tableNumber || null,
       address: order.customer.address || null,
       notes: order.customer.notes || null,
