@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Product, CartItem, CustomerDetails, PaymentMethod, Order, StoreInfo, MerchantAccount } from '@/types';
 import { INITIAL_STORE_INFO, INITIAL_MERCHANTS, STORE_PRESETS } from '@/data/mockData';
 import { Header } from '@/components/Header';
@@ -13,6 +13,10 @@ import { CheckoutModal } from '@/components/CheckoutModal';
 import { PaymentModal } from '@/components/PaymentModal';
 import { OrderSuccessModal } from '@/components/OrderSuccessModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
+import type { AdminDashboardGuard } from '@/components/AdminDashboard';
+import { Toast } from '@/components/Toast';
+import type { ToastData } from '@/components/Toast';
+import { UnsavedChangesDialog } from '@/components/UnsavedChangesDialog';
 import { AuthView } from '@/components/AuthView';
 import { SuperAdminDashboard } from '@/components/SuperAdminDashboard';
 import {
@@ -30,6 +34,71 @@ import {
 export default function HomePage() {
   // Global States
   const [activeTab, setActiveTab] = useState<'customer' | 'admin' | 'auth' | 'superadmin'>('customer');
+
+  // ---- Popup simpan + peringatan belum disimpan (revisi Mode 2) ----
+  type ModeTab = 'customer' | 'admin' | 'auth' | 'superadmin';
+  const [toast, setToast] = useState<ToastData | null>(null);
+  const showToast = useCallback((kind: 'success' | 'error', message: string) => {
+    setToast({ id: Date.now(), kind, message });
+  }, []);
+  // Guard dari AdminDashboard: cek dirty, simpan, atau buang perubahan.
+  const adminGuardRef = useRef<AdminDashboardGuard | null>(null);
+  const [adminDirty, setAdminDirty] = useState(false);
+  // Mode tujuan yang ditahan sambil menunggu jawaban dialog.
+  const [pendingTab, setPendingTab] = useState<ModeTab | null>(null);
+  const [savingBeforeNav, setSavingBeforeNav] = useState(false);
+
+  // Semua pindah mode lewat sini. Bila sedang di Dashboard Toko dan ada
+  // perubahan belum disimpan, tahan dulu dan tampilkan dialog; bila tidak
+  // ada dirty, pindah langsung tanpa dialog.
+  const requestTabChange = useCallback(
+    (tab: ModeTab) => {
+      if (tab === activeTab) return;
+      if (activeTab === 'admin' && adminGuardRef.current?.hasUnsavedChanges()) {
+        setPendingTab(tab);
+        return;
+      }
+      setActiveTab(tab);
+    },
+    [activeTab]
+  );
+
+  // Dialog "Perubahan belum disimpan": Keluar = buang perubahan, lanjut pindah.
+  const handleDialogKeluar = () => {
+    const target = pendingTab;
+    setPendingTab(null);
+    if (!target) return;
+    adminGuardRef.current?.discardUnsavedChanges();
+    setAdminDirty(false);
+    setActiveTab(target);
+  };
+
+  // Dialog "Perubahan belum disimpan": Simpan = simpan dulu lewat jalur
+  // simpan dashboard yang sama; bila berhasil baru pindah, bila gagal tetap
+  // di dashboard (popup error sudah tampil dari fungsi simpan).
+  const handleDialogSimpan = async () => {
+    if (!pendingTab) return;
+    setSavingBeforeNav(true);
+    const ok = await adminGuardRef.current?.saveUnsavedChanges();
+    setSavingBeforeNav(false);
+    if (ok) {
+      const target = pendingTab;
+      setPendingTab(null);
+      setActiveTab(target);
+    } else {
+      setPendingTab(null);
+    }
+  };
+
+  // Tutup / reload tab browser saat ada perubahan belum disimpan di dashboard.
+  useEffect(() => {
+    if (activeTab !== 'admin' || !adminDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [activeTab, adminDirty]);
   // State awal: mock BUKAN sumber utama. merchants/allStores/products mulai kosong
   // dan diisi dari Supabase lewat useEffect di bawah. storeInfo tetap memakai
   // INITIAL_STORE_INFO hanya sebagai placeholder tampilan loading, karena Header
@@ -202,7 +271,29 @@ export default function HomePage() {
   // Async (E-integrasi poin 8): dashboard menunggu hasilnya dan menampilkan
   // error bila false. true hanya bila upsert toko DAN (bila owner berubah)
   // upsert merchant sama-sama berhasil.
+  // URUTAN PENTING (revisi Mode 2): Supabase DULU, state lokal + localStorage
+  // HANYA bila cloud berhasil. Jadi popup sukses tidak pernah muncul padahal
+  // Supabase gagal, dan draf dashboard tetap dianggap belum tersimpan.
   const handleUpdateStore = async (newStore: StoreInfo): Promise<boolean> => {
+    // Sync to Supabase Cloud dulu
+    const okStore = await upsertStoreToSupabase(newStore).catch((e) => {
+      console.warn(e);
+      return false;
+    });
+
+    let okMerchant = true;
+    let updatedMerchant: MerchantAccount | null = null;
+    const merchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
+    if (merchant && newStore.ownerName && merchant.ownerName !== newStore.ownerName) {
+      updatedMerchant = { ...merchant, ownerName: newStore.ownerName };
+      okMerchant = await upsertMerchantToSupabase(updatedMerchant).catch((e) => {
+        console.warn(e);
+        return false;
+      });
+    }
+
+    if (!okStore || !okMerchant) return false;
+
     setStoreInfo(newStore);
     setAllStores((prev) => {
       const updated = {
@@ -220,36 +311,21 @@ export default function HomePage() {
       return updated;
     });
 
-    // Sync to Supabase Cloud
-    const okStore = await upsertStoreToSupabase(newStore).catch((e) => {
-      console.warn(e);
-      return false;
-    });
-
-    let okMerchant = true;
-    const merchant = merchants.find((m) => m.storeSlug === activeStoreSlug);
-    if (merchant && newStore.ownerName && merchant.ownerName !== newStore.ownerName) {
-      const updatedMerchant: MerchantAccount = { ...merchant, ownerName: newStore.ownerName };
-      okMerchant = await upsertMerchantToSupabase(updatedMerchant).catch((e) => {
-        console.warn(e);
-        return false;
+    if (updatedMerchant) {
+      setMerchants((prev) => {
+        const updated = prev.map((m) =>
+          m.storeSlug === activeStoreSlug ? updatedMerchant! : m
+        );
+        try {
+          localStorage.setItem('umkm_merchants', JSON.stringify(updated));
+        } catch (e) {
+          console.warn(e);
+        }
+        return updated;
       });
-      if (okMerchant) {
-        setMerchants((prev) => {
-          const updated = prev.map((m) =>
-            m.storeSlug === activeStoreSlug ? updatedMerchant : m
-          );
-          try {
-            localStorage.setItem('umkm_merchants', JSON.stringify(updated));
-          } catch (e) {
-            console.warn(e);
-          }
-          return updated;
-        });
-      }
     }
 
-    return okStore && okMerchant;
+    return true;
   };
 
   const handleRegisterMerchant = (
@@ -622,17 +698,28 @@ export default function HomePage() {
     setCartItems([]);
   };
 
-  // Admin Handlers
-  const handleAddProduct = (newProd: Product) => {
+  // Admin Handlers — tambah / ubah produk: Supabase DULU, state lokal HANYA
+  // bila cloud berhasil, supaya popup sukses tidak muncul padahal gagal.
+  const handleAddProduct = async (newProd: Product): Promise<boolean> => {
+    const ok = await upsertProductToSupabase(newProd, activeStoreSlug).catch((e) => {
+      console.warn(e);
+      return false;
+    });
+    if (!ok) return false;
     setProducts((prev) => [newProd, ...prev]);
-    upsertProductToSupabase(newProd, activeStoreSlug).catch((e) => console.warn(e));
+    return true;
   };
 
-  const handleUpdateProduct = (updatedProd: Product) => {
+  const handleUpdateProduct = async (updatedProd: Product): Promise<boolean> => {
+    const ok = await upsertProductToSupabase(updatedProd, activeStoreSlug).catch((e) => {
+      console.warn(e);
+      return false;
+    });
+    if (!ok) return false;
     setProducts((prev) =>
       prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
     );
-    upsertProductToSupabase(updatedProd, activeStoreSlug).catch((e) => console.warn(e));
+    return true;
   };
 
   const handleDeleteProduct = (id: string) => {
@@ -748,7 +835,7 @@ export default function HomePage() {
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={requestTabChange}
       />
 
       {/* CUSTOMER VIEW */}
@@ -867,7 +954,7 @@ export default function HomePage() {
                   <button
                     type="button"
                     className="discrete-link"
-                    onClick={() => setActiveTab('superadmin')}
+                    onClick={() => requestTabChange('superadmin')}
                   >
                     Super Admin
                   </button>
@@ -1031,7 +1118,10 @@ export default function HomePage() {
           onToggleAvailability={handleToggleAvailability}
           orders={orders}
           onUpdateOrderStatus={handleUpdateOrderStatus}
-          onSwitchToCustomerView={() => setActiveTab('customer')}
+          onSwitchToCustomerView={() => requestTabChange('customer')}
+          notify={showToast}
+          guardRef={adminGuardRef}
+          onDirtyChange={setAdminDirty}
         />
       ) : activeTab === 'auth' ? (
         /* MERCHANT AUTH (LOGIN & SIGN UP) */
@@ -1039,8 +1129,8 @@ export default function HomePage() {
           merchants={merchants}
           onRegister={handleRegisterMerchant}
           onLogin={handleLoginMerchant}
-          onBackToCustomer={() => setActiveTab('customer')}
-          onGoToSuperAdmin={() => setActiveTab('superadmin')}
+          onBackToCustomer={() => requestTabChange('customer')}
+          onGoToSuperAdmin={() => requestTabChange('superadmin')}
         />
       ) : (
         /* SUPER ADMIN DASHBOARD (PLATFORM OWNER) */
@@ -1051,10 +1141,21 @@ export default function HomePage() {
           onAddMerchant={handleRegisterMerchant}
           onDeleteMerchant={handleDeleteMerchant}
           onUpdateMerchantStatus={handleUpdateMerchantStatus}
-          onBackToCustomer={() => setActiveTab('customer')}
-          onGoToAuth={() => setActiveTab('auth')}
+          onBackToCustomer={() => requestTabChange('customer')}
+          onGoToAuth={() => requestTabChange('auth')}
         />
       )}
+
+      {/* Popup kecil sukses / gagal simpan (revisi Mode 2) */}
+      <Toast toast={toast} onClose={() => setToast(null)} />
+
+      {/* Dialog "Perubahan belum disimpan" saat pindah mode */}
+      <UnsavedChangesDialog
+        open={pendingTab !== null}
+        saving={savingBeforeNav}
+        onKeluar={handleDialogKeluar}
+        onSimpan={handleDialogSimpan}
+      />
 
       {/* Footer Branding */}
       <footer
