@@ -311,25 +311,6 @@ export default function HomePage() {
     }
   };
 
-  // Pemilih toko etalase (C1): pindah ke ?store=<slug>, reset filter & keranjang.
-  const handleSelectStore = (slug: string) => {
-    const storeData = allStores[slug];
-    if (!storeData) return;
-    setActiveStoreSlug(slug);
-    setRequestedStoreSlug(slug);
-    setStoreInfo(storeData.store);
-    setProducts(storeData.products);
-    setCartItems([]);
-    setActiveCategory('Semua Menu');
-    setSearchQuery('');
-    setSelectedProduct(null);
-    try {
-      window.history.replaceState(null, '', `?store=${slug}`);
-    } catch (e) {
-      console.warn(e);
-    }
-  };
-
   const handleSelectStoreFromSuperAdmin = (
     slug: string,
     targetView: 'customer' | 'admin'
@@ -424,20 +405,7 @@ export default function HomePage() {
     return ['Semua Menu', ...unique];
   }, [products]);
 
-  // Toko aktif untuk pemilih toko (C1): merchant berstatus active; bila tidak
-  // ada data merchant, semua toko di allStores dianggap aktif.
-  const activeStores = useMemo(
-    () =>
-      Object.entries(allStores)
-        .filter(([slug]) => {
-          const m = merchants.find((mm) => mm.storeSlug === slug);
-          return !m || m.status === 'active';
-        })
-        .map(([slug, data]) => ({ slug, store: data.store })),
-    [allStores, merchants]
-  );
-
-  // Slug ?store= tidak dikenal: tampilkan pesan + daftar toko, jangan jatuh
+  // Slug ?store= tidak dikenal: tampilkan pesan, jangan jatuh
   // diam-diam ke toko default.
   const storeNotFound =
     !isLoading && requestedStoreSlug !== null && !allStores[requestedStoreSlug];
@@ -798,21 +766,8 @@ export default function HomePage() {
               <span className="empty-search-icon">🏪</span>
               <h3>Toko tidak ditemukan</h3>
               <p>
-                Toko &ldquo;{requestedStoreSlug}&rdquo; tidak ada. Silakan pilih toko lain di bawah ini.
+                Toko &ldquo;{requestedStoreSlug}&rdquo; tidak ada. Silakan periksa kembali alamat linknya.
               </p>
-              <div className="other-stores-chips">
-                {activeStores.map((s) => (
-                  <button
-                    key={s.slug}
-                    type="button"
-                    className="other-store-chip"
-                    onClick={() => handleSelectStore(s.slug)}
-                  >
-                    <span>🏪</span>
-                    <span>{s.store.name}</span>
-                  </button>
-                ))}
-              </div>
             </div>
           ) : isStoreInactive ? (
             /* TAMPILAN PERSUASIF & MENJAGA CITRA BRAND SAAT TOKO SEDANG REHAT / NONAKTIF */
@@ -898,28 +853,6 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* Jelajahi Mitra UMKM Lainnya */}
-                <div className="maintenance-other-stores">
-                  <span className="other-stores-heading">
-                    🛍️ Ingin memesan kuliner atau produk sekarang? Kunjungi mitra UMKM lainnya:
-                  </span>
-                  <div className="other-stores-chips">
-                    {merchants
-                      .filter((m) => m.storeSlug !== activeStoreSlug && m.status === 'active')
-                      .map((otherM) => (
-                        <button
-                          key={otherM.storeSlug}
-                          type="button"
-                          className="other-store-chip"
-                          onClick={() => handleSelectStoreFromSuperAdmin(otherM.storeSlug, 'customer')}
-                        >
-                          <span>🏪</span>
-                          <span>{otherM.storeName}</span>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
                 {/* Discrete Owner Login Link */}
                 <div className="maintenance-discrete-footer">
                   <span>Pemilik Toko {storeInfo.name}? </span>
@@ -944,25 +877,6 @@ export default function HomePage() {
           ) : (
             /* ETALASE BELANJA NORMAL (TOKO AKTIF) */
             <>
-              {/* Pemilih toko (C1): semua toko active, pindah ke ?store=<slug> */}
-              {activeStores.length > 1 && (
-                <div className="store-picker-strip">
-                  <span className="store-picker-label">Pilih toko:</span>
-                  <div className="store-picker-chips">
-                    {activeStores.map((s) => (
-                      <button
-                        key={s.slug}
-                        type="button"
-                        className={`store-picker-chip ${s.slug === activeStoreSlug ? 'active' : ''}`}
-                        onClick={() => handleSelectStore(s.slug)}
-                      >
-                        {s.store.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Sticky Category & Search Bar */}
               <CategoryFilter
                 categories={derivedCategories}
