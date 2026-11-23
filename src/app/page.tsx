@@ -119,6 +119,68 @@ export default function HomePage() {
   // localStorage lewat loadOrders di useEffect di bawah.
   const [orders, setOrders] = useState<Order[]>([]);
 
+  // ---- Pesanan per toko (perbaikan 23 Nov 2026) ----
+  // State `orders` HANYA berisi pesanan toko aktif. Tiap toko hanya lihat
+  // pesanannya sendiri; Super Admin yang buka dashboard satu toko juga
+  // hanya lihat pesanan toko itu. Sumber benar Supabase (disaring
+  // store_slug di DB); localStorage hanya melengkapi id yang belum ada di
+  // cloud DAN sudah berlabel toko yang sama.
+  // Pesanan lama di localStorage yang TIDAK punya label toko sengaja TIDAK
+  // ditampilkan di toko mana pun: tokonya tidak bisa dibuktikan, dan
+  // menampilkannya berisiko bocor ke toko lain (persis bug yang diperbaiki
+  // ini). Pesanan itu tetap tersimpan di localStorage, tidak dihapus; dan
+  // pesanan apa pun yang berhasil tersimpan ke Supabase tetap tampil
+  // dengan label yang benar.
+  const loadOrders = useCallback(async (slug: string) => {
+    let localOrders: Order[] = [];
+    try {
+      const raw = localStorage.getItem('umkm_orders');
+      if (raw) localOrders = JSON.parse(raw) as Order[];
+    } catch (e) {
+      console.warn('LocalStorage orders error:', e);
+    }
+    // Hanya pesanan berlabel toko ini; seed contoh dan pesanan tanpa label
+    // selalu disaring keluar.
+    localOrders = localOrders.filter(
+      (o) => o.id !== 'ord-init-1' && o.storeSlug === slug
+    );
+    let cloudOrders: Order[] | null = null;
+    try {
+      cloudOrders = await getOrdersFromSupabase(slug);
+    } catch (e) {
+      console.warn('Load orders from Supabase failed:', e);
+    }
+    const merged = cloudOrders
+      ? [
+          ...cloudOrders,
+          ...localOrders.filter((lo) => !cloudOrders!.some((co) => co.id === lo.id)),
+        ]
+      : localOrders;
+    setOrders(merged.filter((o) => o.id !== 'ord-init-1'));
+  }, []);
+
+  // Simpan daftar pesanan toko aktif ke localStorage TANPA menghapus
+  // pesanan toko lain yang tersimpan di sana: gabung berdasarkan id,
+  // pesanan toko lain dan pesanan lama tanpa label tetap dipertahankan.
+  const persistOrdersToLocalStorage = useCallback((updated: Order[]) => {
+    try {
+      const raw = localStorage.getItem('umkm_orders');
+      const stored: Order[] = raw ? (JSON.parse(raw) as Order[]) : [];
+      const updatedIds = new Set(updated.map((o) => o.id));
+      const merged = [...updated, ...stored.filter((o) => !updatedIds.has(o.id))];
+      localStorage.setItem('umkm_orders', JSON.stringify(merged));
+    } catch (e) {
+      console.warn('LocalStorage save orders error:', e);
+    }
+  }, []);
+
+  // Pertahanan lapis kedua: apa pun isi state, yang dikirim ke dashboard
+  // sudah terpilah untuk toko aktif.
+  const ordersForActiveStore = useMemo(
+    () => orders.filter((o) => o.id !== 'ord-init-1' && o.storeSlug === activeStoreSlug),
+    [orders, activeStoreSlug]
+  );
+
   // Filtering & Search
   const [activeCategory, setActiveCategory] = useState<string>('Semua Menu');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -183,37 +245,11 @@ export default function HomePage() {
       }
     };
 
-    // LANGKAH 1b: hidrasi orders — Supabase diutamakan, localStorage
-    // umkm_orders melengkapi id yang belum ada di cloud; seed ord-init-1
-    // selalu disaring keluar.
-    const loadOrders = async () => {
-      let localOrders: Order[] = [];
-      try {
-        const raw = localStorage.getItem('umkm_orders');
-        if (raw) localOrders = JSON.parse(raw) as Order[];
-      } catch (e) {
-        console.warn('LocalStorage orders error:', e);
-      }
-      localOrders = localOrders.filter((o) => o.id !== 'ord-init-1');
-      let cloudOrders: Order[] | null = null;
-      try {
-        cloudOrders = await getOrdersFromSupabase(targetSlug);
-      } catch (e) {
-        console.warn('Load orders from Supabase failed:', e);
-      }
-      const merged = cloudOrders
-        ? [
-            ...cloudOrders,
-            ...localOrders.filter((lo) => !cloudOrders!.some((co) => co.id === lo.id)),
-          ]
-        : localOrders;
-      setOrders(merged.filter((o) => o.id !== 'ord-init-1'));
-    };
-
+    // LANGKAH 1b: hidrasi orders untuk toko target (loadOrders di atas).
     // LANGKAH 1: fetch Supabase dulu sebagai sumber benar.
     async function loadFromSupabase() {
       // Orders dimuat dulu (independen dari toko) supaya dashboard tidak kosong.
-      await loadOrders();
+      await loadOrders(targetSlug);
       try {        const [cloudMerchants, cloudStores] = await Promise.all([
           getMerchantsFromSupabase(),
           getAllStoresWithProductsFromSupabase(),
@@ -266,7 +302,7 @@ export default function HomePage() {
     }
 
     loadFromSupabase();
-  }, []);
+  }, [loadOrders]);
 
   // Async (E-integrasi poin 8): dashboard menunggu hasilnya dan menampilkan
   // error bila false. true hanya bila upsert toko DAN (bila owner berubah)
@@ -367,6 +403,10 @@ export default function HomePage() {
     setCartItems([]);
     setActiveTab('admin'); // Directly go to seller dashboard!
 
+    // Pindah ke toko baru: kosongkan daftar lama lalu muat pesanan toko baru.
+    setOrders([]);
+    void loadOrders(slug);
+
     // Sync to Supabase Cloud
     upsertMerchantToSupabase(newMerchant).catch((e) => console.warn(e));
     upsertStoreToSupabase(newStore).catch((e) => console.warn(e));
@@ -384,6 +424,9 @@ export default function HomePage() {
       setProducts(storeData.products);
       setCartItems([]);
       setActiveTab('admin');
+      // Daftar lama jangan tertinggal: kosongkan lalu muat pesanan toko ini.
+      setOrders([]);
+      void loadOrders(storeSlug);
     }
   };
 
@@ -399,6 +442,9 @@ export default function HomePage() {
       setProducts(storeData.products);
       setCartItems([]);
       setActiveTab(targetView);
+      // Daftar lama jangan tertinggal: kosongkan lalu muat pesanan toko ini.
+      setOrders([]);
+      void loadOrders(slug);
     }
   };
 
@@ -614,6 +660,9 @@ export default function HomePage() {
     const newOrder: Order = {
       id: 'ord-' + Date.now(),
       orderNumber: newOrderNumber,
+      // Label toko aktif — supaya pesanan ini hanya tampil di dashboard
+      // toko ini, tidak bocor ke toko lain (perbaikan 23 Nov 2026).
+      storeSlug: activeStoreSlug,
       createdAt: new Date().toISOString(),
       items: [...cartItems],
       customer: { ...customerDetails },
@@ -648,13 +697,11 @@ export default function HomePage() {
       });
 
       // Save to orders feed (visible in Admin Dashboard) + persist lokal.
+      // Gabung ke localStorage (bukan timpa) supaya pesanan toko lain
+      // yang tersimpan di sana tidak terhapus.
       setOrders((prev) => {
         const updated = [newOrder, ...prev];
-        try {
-          localStorage.setItem('umkm_orders', JSON.stringify(updated));
-        } catch (e) {
-          console.warn('LocalStorage save orders error:', e);
-        }
+        persistOrdersToLocalStorage(updated);
         return updated;
       });
     };
@@ -770,11 +817,9 @@ export default function HomePage() {
   const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
     setOrders((prev) => {
       const updated = prev.map((o) => (o.id === orderId ? { ...o, status } : o));
-      try {
-        localStorage.setItem('umkm_orders', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('LocalStorage save orders error:', e);
-      }
+      // Gabung ke localStorage (bukan timpa) supaya pesanan toko lain
+      // yang tersimpan di sana tidak terhapus.
+      persistOrdersToLocalStorage(updated);
       return updated;
     });
     // Idempotent: dashboard juga memanggil updateOrderStatusInSupabase
@@ -1109,7 +1154,8 @@ export default function HomePage() {
           onUpdateProduct={handleUpdateProduct}
           onDeleteProduct={handleDeleteProduct}
           onToggleAvailability={handleToggleAvailability}
-          orders={orders}
+          orders={ordersForActiveStore}
+          storeSlug={activeStoreSlug}
           onUpdateOrderStatus={handleUpdateOrderStatus}
           onSwitchToCustomerView={() => requestTabChange('customer')}
           notify={showToast}
