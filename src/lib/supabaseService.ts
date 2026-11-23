@@ -302,6 +302,10 @@ export async function getOrdersFromSupabase(storeSlug?: string): Promise<Order[]
     return data.map((row) => ({
       id: row.id,
       orderNumber: row.order_number,
+      // Label toko dari kolom store_slug — dipakai untuk memilah pesanan
+      // per toko di dashboard (perbaikan 23 Nov 2026: pesanan Padang tidak
+      // boleh tampil di Batik).
+      storeSlug: row.store_slug,
       // created_at disimpan sebagai TEXT berisi ISO lengkap.
       createdAt: row.created_at,
       items: Array.isArray(row.items) ? (row.items as CartItem[]) : [],
