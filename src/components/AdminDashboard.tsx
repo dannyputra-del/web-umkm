@@ -53,6 +53,10 @@ interface AdminDashboardProps {
   onDeleteProduct: (id: string) => void;
   onToggleAvailability: (id: string) => void;
   orders: Order[];
+  // Slug toko aktif yang dashboardnya dibuka. Dipakai untuk memilah
+  // pesanan (pertahanan ganda, perbaikan 23 Nov 2026): bila tidak diisi,
+  // dipakai store.slug. Tiap toko hanya lihat pesanannya sendiri.
+  storeSlug?: string;
   onUpdateOrderStatus: (orderId: string, status: Order['status']) => void;
   onSwitchToCustomerView: () => void;
   // Popup kecil sukses/gagal — ditampilkan halaman supaya tetap terlihat
@@ -71,6 +75,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteProduct,
   onToggleAvailability,
   orders,
+  storeSlug,
   onUpdateOrderStatus,
   onSwitchToCustomerView,
   notify,
@@ -290,7 +295,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Pesanan: saring seed contoh keluar dari daftar & metrik, lalu hitung
   // metrik "Hari Ini" hanya dari order hari ini (tanggal lokal) yang tidak
   // dibatalkan / ditolak.
-  const visibleOrders = orders.filter((o) => o.id !== 'ord-init-1');
+  // PERTAHANAN GANDA (perbaikan 23 Nov 2026): pilah per toko aktif di sini
+  // juga, supaya pesanan toko lain tidak pernah tampil walau prop orders
+  // suatu hari terisi tanpa pilah. Pesanan tanpa label toko tidak
+  // ditampilkan di toko mana pun (tokonya tidak bisa dibuktikan).
+  const activeStoreSlug = storeSlug ?? store.slug;
+  const visibleOrders = orders.filter(
+    (o) => o.id !== 'ord-init-1' && o.storeSlug === activeStoreSlug
+  );
 
   const isToday = (createdAt: string): boolean => {
     const d = new Date(createdAt);
@@ -316,8 +328,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     onUpdateOrderStatus(orderId, status);
     try {
+      // Gabung ke localStorage (bukan timpa): prop orders sudah terpilah
+      // per toko, jadi menimpa akan menghapus pesanan toko lain yang
+      // tersimpan di sana. Perbarui hanya id yang berubah, sisanya dipertahankan.
+      const raw = localStorage.getItem('umkm_orders');
+      const stored: Order[] = raw ? (JSON.parse(raw) as Order[]) : [];
       const updated = orders.map((o) => (o.id === orderId ? { ...o, status } : o));
-      localStorage.setItem('umkm_orders', JSON.stringify(updated));
+      const updatedIds = new Set(updated.map((o) => o.id));
+      const merged = [...updated, ...stored.filter((o) => !updatedIds.has(o.id))];
+      localStorage.setItem('umkm_orders', JSON.stringify(merged));
     } catch (e) {
       console.warn('LocalStorage save orders error:', e);
     }
