@@ -39,6 +39,12 @@ export interface CustomerDetails {
 export interface Order {
   id: string;
   orderNumber: string;
+  // Label toko pemilik pesanan (slug). OPSIONAL supaya pesanan lama yang
+  // tersimpan tanpa label tetap bisa dibaca — tapi pesanan tanpa label
+  // TIDAK ditampilkan di dashboard toko mana pun (tidak bisa dibuktikan
+  // tokonya, dan menampilkannya berisiko bocor ke toko lain). Sumber benar
+  // adalah Supabase yang selalu membawa store_slug.
+  storeSlug?: string;
   createdAt: string; // HARUS ISO lengkap, mis. new Date().toISOString() — pembuat order di page.tsx wajib kirim ISO.
   items: CartItem[];
   customer: CustomerDetails;
